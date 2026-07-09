@@ -4,6 +4,7 @@ import asyncio
 from services.market_service import MarketService
 from services.score_service import ScoreService
 from services.telegram_service import TelegramService
+from services.supply_api_service import SupplyAPIService
 
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -21,12 +22,21 @@ async def main():
         market = MarketService.get_market_data()
 
 
-        # 수급 데이터
-        # (현재는 테스트 값, 다음 단계에서 OpenAPI 연결)
+        # 실제 수급 데이터
+        supply_api = SupplyAPIService()
+
+        supply = supply_api.get_supply()
+
+
+        # 임시 변환
+        # API 응답 구조 확인 후 정확한 필드 연결 예정
         supply_data = {
-            "foreign": 1000,
-            "institution": 500,
-            "program": 700
+
+            "foreign": 0,
+
+            "institution": 0,
+
+            "program": 0
         }
 
 
@@ -79,6 +89,7 @@ USD/KRW : {market['USDKRW']:+.2f}%
 📌 판단 근거
 
 {reasons}
+
 
 ━━━━━━━━━━━━━━
 """
