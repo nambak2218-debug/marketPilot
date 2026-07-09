@@ -4,7 +4,6 @@ import asyncio
 from services.kis_service import KISService
 from services.telegram_service import TelegramService
 
-
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
@@ -14,7 +13,6 @@ async def main():
     telegram = TelegramService(BOT_TOKEN)
 
     try:
-
         kis = KISService()
 
         token = kis.get_access_token()
@@ -22,7 +20,7 @@ async def main():
         message = f"""
 ✅ MarketPilot V2
 
-한국투자 OpenAPI 연결 성공
+한국투자 OpenAPI 연결 성공!
 
 토큰 길이 : {len(token)}
 
@@ -36,7 +34,7 @@ async def main():
         message = f"""
 ❌ 한국투자 OpenAPI 연결 실패
 
-오류내용
+오류 내용
 
 {str(e)}
 """
