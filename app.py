@@ -63,6 +63,16 @@ USD/KRW : {market['USDKRW']:+.2f}%
 신뢰도 : {result['confidence']}%
 
 ━━━━━━━━━━━━━━━━━━
+signal = SignalService.decide(
+    result["score"]
+)
+
+HistoryService.save(
+    result["score"],
+    signal["action"],
+    market
+)
+
 """
 
     telegram = TelegramService(BOT_TOKEN)
