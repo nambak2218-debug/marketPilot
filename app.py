@@ -1,82 +1,43 @@
-import os
 import asyncio
-import yfinance as yf
-from telegram import Bot
+import os
+
+from services.market_service import MarketService
+from services.score_service import ScoreService
+from services.telegram_service import TelegramService
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
 
 
-def pct(symbol):
-    df = yf.download(symbol, period="5d", progress=False, auto_adjust=True)
-
-    close = df["Close"].dropna()
-
-    today = float(close.iloc[-1])
-    yesterday = float(close.iloc[-2])
-
-    return round((today - yesterday) / yesterday * 100, 2)
-
-
-def score(nasdaq, sox, nvda, mu):
-
-    score = 50
-
-    score += nasdaq * 5
-    score += sox * 3
-    score += nvda * 2
-    score += mu * 2
-
-    score = max(0, min(100, round(score)))
-
-    if score >= 70:
-        signal = "🟢 레버리지 우세"
-
-    elif score >= 40:
-        signal = "🟡 관망"
-
-    else:
-        signal = "🔴 인버스 우세"
-
-    return score, signal
-
-
 async def main():
 
-    nasdaq = pct("^IXIC")
-    sox = pct("^SOX")
-    nvda = pct("NVDA")
-    mu = pct("MU")
+    market = MarketService.get_market_data()
 
-    s, signal = score(nasdaq, sox, nvda, mu)
+    score, signal = ScoreService.calculate(market)
 
-    text = f"""
+    message = f"""
 🚦 MarketPilot
 
-🇺🇸 미국시장
+NASDAQ : {market['NASDAQ']:+.2f}%
 
-NASDAQ {nasdaq:+.2f}%
+SOX : {market['SOX']:+.2f}%
 
-SOX {sox:+.2f}%
+NVIDIA : {market['NVDA']:+.2f}%
 
-NVIDIA {nvda:+.2f}%
-
-MICRON {mu:+.2f}%
+MICRON : {market['MU']:+.2f}%
 
 ━━━━━━━━━━━━━━
 
-🧠 AI SCORE : {s}
+AI SCORE : {score}
 
 {signal}
-
-━━━━━━━━━━━━━━
 """
 
-    bot = Bot(BOT_TOKEN)
+    telegram = TelegramService(BOT_TOKEN)
 
-    await bot.send_message(
-        chat_id=CHAT_ID,
-        text=text
+    await telegram.send(
+        CHAT_ID,
+        message
     )
 
 
