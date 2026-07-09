@@ -24,8 +24,13 @@ class SupplyAPIService:
 
 
         params = {
+
+            # 코스피
             "FID_COND_MRKT_DIV_CODE": "J",
-            "FID_INPUT_ISCD": "0001"
+
+            # 삼성전자 테스트
+            "FID_INPUT_ISCD": "005930",
+
         }
 
 
@@ -37,7 +42,9 @@ class SupplyAPIService:
         )
 
 
-        response.raise_for_status()
+        print("KIS STATUS:", response.status_code)
+
+        print("KIS BODY:", response.text)
 
 
         return response.json()
