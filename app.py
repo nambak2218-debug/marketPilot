@@ -25,8 +25,9 @@ async def main():
         # 실제 수급 데이터
         supply_api = SupplyAPIService()
 
-        supply = supply_api.get_supply()
+supply = supply_api.get_supply()
 
+print(supply)
 
         # 임시 변환
         # API 응답 구조 확인 후 정확한 필드 연결 예정
