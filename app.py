@@ -1,8 +1,10 @@
 import os
 import asyncio
 
-from services.kis_service import KISService
+from services.market_service import MarketService
+from services.score_service import ScoreService
 from services.telegram_service import TelegramService
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
@@ -12,37 +14,90 @@ async def main():
 
     telegram = TelegramService(BOT_TOKEN)
 
-    try:
-        kis = KISService()
 
-        token = kis.get_access_token()
+    try:
+
+        # 시장 데이터
+        market = MarketService.get_market_data()
+
+
+        # 수급 데이터
+        # (현재는 테스트 값, 다음 단계에서 OpenAPI 연결)
+        supply_data = {
+            "foreign": 1000,
+            "institution": 500,
+            "program": 700
+        }
+
+
+        # AI Score
+        engine = ScoreService()
+
+        result = engine.calculate(
+            market,
+            supply_data
+        )
+
+
+        reasons = "\n".join(
+            result["reasons"]
+        )
+
 
         message = f"""
-✅ MarketPilot V2
+🚦 MarketPilot V2
 
-한국투자 OpenAPI 연결 성공!
+━━━━━━━━━━━━━━
 
-토큰 길이 : {len(token)}
+🇺🇸 미국시장
 
-토큰 앞 20자리
+NASDAQ : {market['NASDAQ']:+.2f}%
 
-{token[:20]}...
+SOX : {market['SOX']:+.2f}%
+
+VIX : {market['VIX']:+.2f}%
+
+
+💵 환율
+
+USD/KRW : {market['USDKRW']:+.2f}%
+
+
+━━━━━━━━━━━━━━
+
+🧠 AI SCORE
+
+{result['score']} / 100
+
+{result['signal']}
+
+신뢰도 : {result['confidence']}%
+
+
+━━━━━━━━━━━━━━
+
+📌 판단 근거
+
+{reasons}
+
+━━━━━━━━━━━━━━
 """
+
 
     except Exception as e:
 
         message = f"""
-❌ 한국투자 OpenAPI 연결 실패
+❌ MarketPilot 오류
 
-오류 내용
-
-{str(e)}
+{e}
 """
+
 
     await telegram.send(
         CHAT_ID,
         message
     )
+
 
 
 if __name__ == "__main__":
