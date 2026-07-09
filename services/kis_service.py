@@ -6,20 +6,12 @@ class KISService:
 
     def __init__(self):
 
-        self.base_url = os.getenv("KIS_BASE_URL")
+        self.base_url = os.environ["KIS_BASE_URL"]
+        self.app_key = os.environ["KIS_APP_KEY"]
+        self.app_secret = os.environ["KIS_APP_SECRET"]
 
-        self.app_key = os.getenv("KIS_APP_KEY")
+        self.access_token = None
 
-        self.app_secret = os.getenv("KIS_APP_SECRET")
-
-        if not self.base_url:
-            raise Exception("KIS_BASE_URL Secret이 없습니다.")
-
-        if not self.app_key:
-            raise Exception("KIS_APP_KEY Secret이 없습니다.")
-
-        if not self.app_secret:
-            raise Exception("KIS_APP_SECRET Secret이 없습니다.")
 
     def get_access_token(self):
 
@@ -35,13 +27,41 @@ class KISService:
             "appsecret": self.app_secret
         }
 
+
         response = requests.post(
             url,
             headers=headers,
-            json=body,
-            timeout=30
+            json=body
         )
 
         response.raise_for_status()
 
-        return response.json()["access_token"]
+        self.access_token = response.json()["access_token"]
+
+        return self.access_token
+
+
+
+    def get_headers(self, tr_id):
+
+        if not self.access_token:
+            self.get_access_token()
+
+
+        return {
+
+            "content-type":
+                "application/json; charset=utf-8",
+
+            "authorization":
+                f"Bearer {self.access_token}",
+
+            "appkey":
+                self.app_key,
+
+            "appsecret":
+                self.app_secret,
+
+            "tr_id":
+                tr_id
+        }
