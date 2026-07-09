@@ -29,9 +29,7 @@ class SupplyAPIService:
 
             "FID_INPUT_ISCD": "005930",
 
-            "FID_INPUT_DATE_1": "",
-
-            "FID_INPUT_DATE_2": ""
+            "FID_INPUT_ISCD_2": "005930"
 
         }
 
@@ -42,6 +40,10 @@ class SupplyAPIService:
             params=params,
             timeout=30
         )
+
+
+        print("KIS RESPONSE")
+        print(response.text)
 
 
         return response.json()
