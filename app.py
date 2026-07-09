@@ -4,6 +4,9 @@ import asyncio
 from services.market_service import MarketService
 from services.score_service import ScoreService
 from services.telegram_service import TelegramService
+from services.signal_service import SignalService
+from services.history_service import HistoryService
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
