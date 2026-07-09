@@ -1,59 +1,90 @@
-import json
-from pathlib import Path
+from services.supply_service import SupplyService
 
 
 class ScoreService:
 
     def __init__(self):
+        self.supply = SupplyService()
 
-        path = Path("config/weights.json")
 
-        with open(path, encoding="utf-8") as f:
-
-            self.weights = json.load(f)
-
-    def calculate(self, market):
+    def calculate(self, market, supply_data=None):
 
         score = 50
+        reasons = []
 
-        detail = {}
 
-        for key, weight in self.weights.items():
+        # 미국시장
+        if market["NASDAQ"] > 0:
+            score += 10
+            reasons.append("✅ 나스닥 상승")
+        else:
+            score -= 10
+            reasons.append("⚠️ 나스닥 약세")
 
-            value = market.get(key, 0)
 
-            if key == "VIX":
+        # 반도체
+        if market["SOX"] > 0:
+            score += 15
+            reasons.append("✅ 반도체 강세")
+        else:
+            score -= 15
+            reasons.append("⚠️ 반도체 약세")
 
-                # VIX는 하락할수록 시장에는 긍정적
-                contribution = -value * (weight / 10)
 
-            else:
+        # VIX
+        if market["VIX"] < 0:
+            score += 10
+            reasons.append("✅ 변동성 안정")
+        else:
+            score -= 10
+            reasons.append("⚠️ 변동성 증가")
 
-                contribution = value * (weight / 10)
 
-            detail[key] = round(contribution, 2)
+        # 환율
+        if market["USDKRW"] < 0:
+            score += 5
+            reasons.append("✅ 환율 안정")
+        else:
+            score -= 5
+            reasons.append("⚠️ 원화 약세")
 
-            score += contribution
 
-        score = max(0, min(100, round(score)))
+        # 수급 추가
+        if supply_data:
 
-        if score >= 70:
-            signal = "🟢 레버리지"
+            supply_result = self.supply.calculate_score(
+                supply_data["foreign"],
+                supply_data["institution"],
+                supply_data["program"]
+            )
 
-        elif score >= 40:
-            signal = "🟡 관망"
+            score += supply_result["score"]
+
+            reasons.extend(
+                supply_result["reasons"]
+            )
+
+
+        # 점수 제한
+        score = max(0, min(100, score))
+
+
+        if score >= 75:
+            signal = "🟢 레버리지 우세"
+
+        elif score <= 40:
+            signal = "🔴 인버스 우세"
 
         else:
-            signal = "🔴 인버스"
+            signal = "🟡 관망"
 
-        confidence = min(
-            100,
-            abs(score - 50) * 2
-        )
+
+        confidence = abs(score - 50) * 2
+
 
         return {
             "score": score,
             "signal": signal,
             "confidence": confidence,
-            "detail": detail
+            "reasons": reasons
         }
