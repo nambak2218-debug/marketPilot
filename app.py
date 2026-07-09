@@ -17,28 +17,72 @@ async def main():
 
     try:
 
-        # 시장 데이터
+        # =========================
+        # 1. 시장 데이터 수집
+        # =========================
+
         market = MarketService.get_market_data()
 
 
-        # 한국투자 수급 데이터
+        # =========================
+        # 2. 한국투자 수급 데이터
+        # =========================
+
         supply_api = SupplyAPIService()
 
         supply = supply_api.get_supply()
 
-        print(supply)
+
+        output = supply.get(
+            "output",
+            []
+        )
 
 
-        # 현재는 기본값 유지
-        # 다음 단계에서 API 응답 필드 연결
-        supply_data = {
-            "foreign": 0,
-            "institution": 0,
-            "program": 0
-        }
+        if output:
+
+            today_supply = output[0]
+
+            supply_data = {
+
+                "foreign": int(
+                    today_supply.get(
+                        "frgn_ntby_qty",
+                        0
+                    )
+                ),
+
+                "institution": int(
+                    today_supply.get(
+                        "orgn_ntby_qty",
+                        0
+                    )
+                ),
+
+                "program": int(
+                    today_supply.get(
+                        "prgm_ntby_qty",
+                        0
+                    )
+                )
+            }
+
+        else:
+
+            supply_data = {
+
+                "foreign": 0,
+
+                "institution": 0,
+
+                "program": 0
+            }
 
 
-        # AI Score
+        # =========================
+        # 3. AI Score 계산
+        # =========================
+
         engine = ScoreService()
 
         result = engine.calculate(
@@ -52,6 +96,10 @@ async def main():
         )
 
 
+        # =========================
+        # 4. Telegram 메시지
+        # =========================
+
         message = f"""
 🚦 MarketPilot V2
 
@@ -61,6 +109,8 @@ async def main():
 
 NASDAQ : {market['NASDAQ']:+.2f}%
 
+S&P500 : {market['SP500']:+.2f}%
+
 SOX : {market['SOX']:+.2f}%
 
 VIX : {market['VIX']:+.2f}%
@@ -69,6 +119,17 @@ VIX : {market['VIX']:+.2f}%
 💵 환율
 
 USD/KRW : {market['USDKRW']:+.2f}%
+
+
+━━━━━━━━━━━━━━
+
+📊 국내 수급
+
+외국인 : {supply_data['foreign']:,}
+
+기관 : {supply_data['institution']:,}
+
+프로그램 : {supply_data['program']:,}
 
 
 ━━━━━━━━━━━━━━
@@ -97,7 +158,7 @@ USD/KRW : {market['USDKRW']:+.2f}%
         message = f"""
 ❌ MarketPilot 오류
 
-{e}
+{str(e)}
 """
 
 
