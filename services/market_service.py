@@ -3,6 +3,16 @@ import yfinance as yf
 
 class MarketService:
 
+    SYMBOLS = {
+        "NASDAQ": "^IXIC",
+        "SP500": "^GSPC",
+        "SOX": "^SOX",
+        "VIX": "^VIX",
+        "NVDA": "NVDA",
+        "MU": "MU",
+        "USDKRW": "KRW=X"
+    }
+
     @staticmethod
     def get_change(symbol):
 
@@ -13,30 +23,35 @@ class MarketService:
             auto_adjust=True
         )
 
+        if hist.empty:
+            return 0.0
+
         close = hist["Close"].dropna()
 
         if len(close) < 2:
             return 0.0
 
-        yesterday = close.iloc[-2]
-        today = close.iloc[-1]
+        yesterday = float(close.iloc[-2])
+        today = float(close.iloc[-1])
 
         return round(
-            (today-yesterday)/yesterday*100,
+            (today - yesterday) / yesterday * 100,
             2
         )
 
     @classmethod
     def get_market_data(cls):
 
-        return {
+        result = {}
 
-            "NASDAQ": cls.get_change("^IXIC"),
+        for name, symbol in cls.SYMBOLS.items():
 
-            "SOX": cls.get_change("^SOX"),
+            try:
 
-            "NVDA": cls.get_change("NVDA"),
+                result[name] = cls.get_change(symbol)
 
-            "MU": cls.get_change("MU")
+            except Exception:
 
-        }
+                result[name] = 0.0
+
+        return result
