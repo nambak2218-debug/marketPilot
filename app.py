@@ -41,7 +41,7 @@ async def main():
 {str(e)}
 """
 
-    await telegram.send_message(
+    await telegram.send(
         CHAT_ID,
         message
     )
