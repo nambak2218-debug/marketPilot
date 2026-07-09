@@ -18,7 +18,7 @@ async def main():
     try:
 
         # =========================
-        # 1. 시장 데이터 수집
+        # 1. 시장 데이터
         # =========================
 
         market = MarketService.get_market_data()
@@ -33,54 +33,76 @@ async def main():
         supply = supply_api.get_supply()
 
 
-        output = supply.get(
-            "output",
-            []
-        )
+        # 원본 응답 확인용
+        print("===== SUPPLY DATA START =====")
+        print(supply)
+        print("===== SUPPLY DATA END =====")
 
 
-        if output:
+        # 기본값
+        supply_data = {
+            "foreign": 0,
+            "institution": 0,
+            "program": 0
+        }
 
-            today_supply = output[0]
 
-            supply_data = {
+        # API 응답 구조 확인 후 자동 처리
+        output = supply.get("output", [])
 
-                "foreign": int(
-                    today_supply.get(
-                        "frgn_ntby_qty",
-                        0
-                    )
-                ),
 
-                "institution": int(
-                    today_supply.get(
-                        "orgn_ntby_qty",
-                        0
-                    )
-                ),
+        if isinstance(output, list) and len(output) > 0:
 
-                "program": int(
-                    today_supply.get(
-                        "prgm_ntby_qty",
-                        0
-                    )
+            data = output[0]
+
+            supply_data["foreign"] = int(
+                data.get(
+                    "frgn_ntby_qty",
+                    0
                 )
-            }
+            )
 
-        else:
+            supply_data["institution"] = int(
+                data.get(
+                    "orgn_ntby_qty",
+                    0
+                )
+            )
 
-            supply_data = {
+            supply_data["program"] = int(
+                data.get(
+                    "prgm_ntby_qty",
+                    0
+                )
+            )
 
-                "foreign": 0,
 
-                "institution": 0,
+        elif isinstance(output, dict):
 
-                "program": 0
-            }
+            supply_data["foreign"] = int(
+                output.get(
+                    "frgn_ntby_qty",
+                    0
+                )
+            )
+
+            supply_data["institution"] = int(
+                output.get(
+                    "orgn_ntby_qty",
+                    0
+                )
+            )
+
+            supply_data["program"] = int(
+                output.get(
+                    "prgm_ntby_qty",
+                    0
+                )
+            )
 
 
         # =========================
-        # 3. AI Score 계산
+        # 3. AI Score
         # =========================
 
         engine = ScoreService()
@@ -97,7 +119,7 @@ async def main():
 
 
         # =========================
-        # 4. Telegram 메시지
+        # 4. Telegram
         # =========================
 
         message = f"""
