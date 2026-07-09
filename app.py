@@ -19,10 +19,19 @@ async def main():
 
     # AI 점수 계산
     engine = ScoreService()
-
     result = engine.calculate(market)
 
-    # 메시지 생성
+    # 매매 신호 생성
+    signal = SignalService.decide(result["score"])
+
+    # 기록 저장
+    HistoryService.save(
+        result["score"],
+        signal,
+        market
+    )
+
+    # 텔레그램 메시지
     message = f"""
 🚦 MarketPilot V1
 
@@ -58,29 +67,20 @@ USD/KRW : {market['USDKRW']:+.2f}%
 
 {result['score']}점
 
-{result['signal']}
+{signal}
 
 신뢰도 : {result['confidence']}%
 
 ━━━━━━━━━━━━━━━━━━
-signal = SignalService.decide(
-    result["score"]
-)
-
-HistoryService.save(
-    result["score"],
-    signal["action"],
-    market
-)
-
 """
 
     telegram = TelegramService(BOT_TOKEN)
 
-    await telegram.send_message(
+    await telegram.send(
         CHAT_ID,
         message
     )
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
