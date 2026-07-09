@@ -34,16 +34,14 @@ async def main():
     except Exception as e:
 
         message = f"""
-❌ MarketPilot V2
+❌ 한국투자 OpenAPI 연결 실패
 
-한국투자 OpenAPI 연결 실패
-
-오류 :
+오류내용
 
 {str(e)}
 """
 
-    await telegram.send(
+    await telegram.send_message(
         CHAT_ID,
         message
     )
