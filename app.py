@@ -15,28 +15,25 @@ async def main():
 
     telegram = TelegramService(BOT_TOKEN)
 
-
     try:
 
         # 시장 데이터
         market = MarketService.get_market_data()
 
 
-        # 실제 수급 데이터
+        # 한국투자 수급 데이터
         supply_api = SupplyAPIService()
 
-supply = supply_api.get_supply()
+        supply = supply_api.get_supply()
 
-print(supply)
+        print(supply)
 
-        # 임시 변환
-        # API 응답 구조 확인 후 정확한 필드 연결 예정
+
+        # 현재는 기본값 유지
+        # 다음 단계에서 API 응답 필드 연결
         supply_data = {
-
             "foreign": 0,
-
             "institution": 0,
-
             "program": 0
         }
 
@@ -91,7 +88,6 @@ USD/KRW : {market['USDKRW']:+.2f}%
 
 {reasons}
 
-
 ━━━━━━━━━━━━━━
 """
 
@@ -109,7 +105,6 @@ USD/KRW : {market['USDKRW']:+.2f}%
         CHAT_ID,
         message
     )
-
 
 
 if __name__ == "__main__":
