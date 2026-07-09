@@ -1,12 +1,9 @@
 import os
 import asyncio
 
-from services.market_service import MarketService
-from services.score_service import ScoreService
-from services.telegram_service import TelegramService
-from services.signal_service import SignalService
-from services.history_service import HistoryService
 from services.kis_service import KISService
+from services.telegram_service import TelegramService
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
@@ -14,73 +11,37 @@ CHAT_ID = os.environ["CHAT_ID"]
 
 async def main():
 
-kis = KISService()
+    telegram = TelegramService(BOT_TOKEN)
 
-token = kis.get_access_token()
+    try:
 
-print(token[:20])
-    
-    # 시장 데이터 수집
-    market = MarketService.get_market_data()
+        kis = KISService()
 
-    # AI 점수 계산
-    engine = ScoreService()
-    result = engine.calculate(market)
+        token = kis.get_access_token()
 
-    # 매매 신호 생성
-    signal = SignalService.decide(result["score"])
+        message = f"""
+✅ MarketPilot V2
 
-    # 기록 저장
-    HistoryService.save(
-        result["score"],
-        signal,
-        market
-    )
+한국투자 OpenAPI 연결 성공
 
-    # 텔레그램 메시지
-    message = f"""
-🚦 MarketPilot V1
+토큰 길이 : {len(token)}
 
-━━━━━━━━━━━━━━━━━━
+토큰 앞 20자리
 
-🇺🇸 미국시장
-
-NASDAQ : {market['NASDAQ']:+.2f}%
-
-S&P500 : {market['SP500']:+.2f}%
-
-SOX : {market['SOX']:+.2f}%
-
-VIX : {market['VIX']:+.2f}%
-
-━━━━━━━━━━━━━━━━━━
-
-💻 반도체
-
-NVIDIA : {market['NVDA']:+.2f}%
-
-MICRON : {market['MU']:+.2f}%
-
-━━━━━━━━━━━━━━━━━━
-
-💵 환율
-
-USD/KRW : {market['USDKRW']:+.2f}%
-
-━━━━━━━━━━━━━━━━━━
-
-🧠 AI SCORE
-
-{result['score']}점
-
-{signal}
-
-신뢰도 : {result['confidence']}%
-
-━━━━━━━━━━━━━━━━━━
+{token[:20]}...
 """
 
-    telegram = TelegramService(BOT_TOKEN)
+    except Exception as e:
+
+        message = f"""
+❌ MarketPilot V2
+
+한국투자 OpenAPI 연결 실패
+
+오류 :
+
+{str(e)}
+"""
 
     await telegram.send(
         CHAT_ID,
