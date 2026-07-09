@@ -19,17 +19,19 @@ class SupplyAPIService:
 
 
         headers = self.kis.get_headers(
-            "FHPTJ04040000"
+            "FHPTJ04030000"
         )
 
 
         params = {
 
-            # 코스피
             "FID_COND_MRKT_DIV_CODE": "J",
 
-            # 삼성전자 테스트
             "FID_INPUT_ISCD": "005930",
+
+            "FID_INPUT_DATE_1": "",
+
+            "FID_INPUT_DATE_2": ""
 
         }
 
@@ -40,11 +42,6 @@ class SupplyAPIService:
             params=params,
             timeout=30
         )
-
-
-        print("KIS STATUS:", response.status_code)
-
-        print("KIS BODY:", response.text)
 
 
         return response.json()
