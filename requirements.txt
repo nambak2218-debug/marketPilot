@@ -1,5 +1,4 @@
-python-telegram-bot
+python-telegram-bot==21.7
 requests
 pandas
 yfinance
-schedule
