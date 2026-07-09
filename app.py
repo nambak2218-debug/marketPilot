@@ -6,7 +6,7 @@ from services.score_service import ScoreService
 from services.telegram_service import TelegramService
 from services.signal_service import SignalService
 from services.history_service import HistoryService
-
+from services.kis_service import KISService
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHAT_ID = os.environ["CHAT_ID"]
@@ -14,6 +14,12 @@ CHAT_ID = os.environ["CHAT_ID"]
 
 async def main():
 
+kis = KISService()
+
+token = kis.get_access_token()
+
+print(token[:20])
+    
     # 시장 데이터 수집
     market = MarketService.get_market_data()
 
