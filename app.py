@@ -39,18 +39,18 @@ def get_market_session(now: datetime | None = None) -> str:
     return "after_market"
 
 
-def get_report_slot(now: datetime | None = None) -> tuple[str, str]:
+def get_report_slot(now: datetime | None = None) -> tuple[str, str, str]:
     current = now or datetime.now(KST)
     current_time = current.time()
     if current_time < time(9, 0):
-        return "🌅 장전 전략", "미국시장과 최근 국내 수급 기반 1차 방향 판단"
+        return "pre_market", "🌅 장전 전략", "미국시장과 최근 국내 수급 기반 1차 방향 판단"
     if current_time < time(10, 30):
-        return "🚀 장초반 확인", "개장 후 수급이 장전 시나리오를 확인하는지 점검"
+        return "opening", "🚀 장초반 확인", "장전 시나리오와 실제 수급이 일치하는지 점검"
     if current_time < time(13, 0):
-        return "☀️ 오전장 점검", "오전 추세의 지속성과 수급 방향 점검"
+        return "midday", "☀️ 오전장 점검", "오전 추세의 지속성과 수급 방향 점검"
     if current_time < time(15, 0):
-        return "🌤 오후 변곡점", "오후 수급 변화와 추세 전환 가능성 점검"
-    return "🔔 마감 직전", "종가 전 최종 수급과 당일 방향 점검"
+        return "afternoon", "🌤 오후 변곡점", "오후 수급 변화와 추세 전환 가능성 점검"
+    return "closing", "🔔 마감 직전", "종가 전 최종 수급과 다음 거래일 준비"
 
 
 def market_session_label(session: str) -> str:
@@ -82,6 +82,11 @@ def format_date(value: Any) -> str:
     return raw or "확인 불가"
 
 
+def star_gauge(level: int) -> str:
+    safe_level = max(1, min(5, int(level)))
+    return "★" * safe_level + "☆" * (5 - safe_level)
+
+
 def build_message(
     market: dict[str, float],
     supply: dict[str, Any],
@@ -89,7 +94,7 @@ def build_message(
     now: datetime,
 ) -> str:
     session = get_market_session(now)
-    report_title, report_purpose = get_report_slot(now)
+    slot, report_title, report_purpose = get_report_slot(now)
     reasons = list(result.get("reasons", []))
 
     if not supply.get("program_available"):
@@ -108,8 +113,19 @@ def build_message(
 
     reason_text = "\n".join(reasons) or "⚪ 판단 근거 없음"
     timestamp = now.strftime("%Y-%m-%d %H:%M KST")
+    action_text = "\n".join(f"• {item}" for item in result.get("actions", []))
 
-    return f"""🚦 MarketPilot V3 Final
+    tomorrow_section = ""
+    if slot == "closing":
+        tomorrow_section = f"""
+
+━━━━━━━━━━━━━━
+
+🔭 다음 거래일 전망
+
+{result['tomorrow_outlook']}"""
+
+    return f"""🚦 MarketPilot V4
 {report_title}
 {report_purpose}
 기준 시각 : {timestamp}
@@ -144,15 +160,26 @@ USD/KRW : {market['USDKRW']:+.2f}%
 {result['score']} / 100
 
 {result['signal']}
-행동 가이드 : {result['action']}
+
+🎯 행동 가이드
+{action_text}
+
 신뢰도 : {result['confidence']}%
 데이터 완전도 : {result['data_completeness']}%
 
 ━━━━━━━━━━━━━━
 
+🚨 시장 위험도
+{star_gauge(result['risk_stars'])} · {result['risk_label']}
+
+🌊 예상 변동성
+{star_gauge(result['volatility_stars'])} · {result['volatility_label']}
+
+━━━━━━━━━━━━━━
+
 📌 판단 근거
 
-{reason_text}
+{reason_text}{tomorrow_section}
 
 ━━━━━━━━━━━━━━
 
