@@ -1,16 +1,25 @@
-name: MarketPilot
+name: MarketPilot V3 Final
 
 on:
   workflow_dispatch:
   schedule:
-    # 평일 오전 8시 20분(KST). UTC 기준 전날 23시 20분.
+    # GitHub Actions cron은 UTC 기준입니다.
+    # KST 평일 08:20 = 전날 UTC 23:20 (일~목)
     - cron: "20 23 * * 0-4"
+    # KST 평일 09:10
+    - cron: "10 0 * * 1-5"
+    # KST 평일 11:30
+    - cron: "30 2 * * 1-5"
+    # KST 평일 14:10
+    - cron: "10 5 * * 1-5"
+    # KST 평일 15:15
+    - cron: "15 6 * * 1-5"
 
 permissions:
   contents: read
 
 concurrency:
-  group: marketpilot-daily
+  group: marketpilot-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -35,10 +44,8 @@ jobs:
         env:
           TZ: Asia/Seoul
           PYTHONUNBUFFERED: "1"
-
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
