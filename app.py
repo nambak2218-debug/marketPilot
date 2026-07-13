@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from services.market_service import MarketService
 from services.score_service import ScoreService
 from services.supply_api_service import SupplyAPIError, SupplyAPIService
 from services.telegram_service import TelegramService
 
+KST = ZoneInfo("Asia/Seoul")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,32 +28,91 @@ def require_env(name: str) -> str:
     return value
 
 
-def format_number(value: int | None) -> str:
-    return "미집계" if value is None else f"{value:+,}"
+def get_market_session(now: datetime | None = None) -> str:
+    current = now or datetime.now(KST)
+    if current.weekday() >= 5:
+        return "closed"
+    if current.time() < time(9, 0):
+        return "pre_market"
+    if current.time() <= time(15, 30):
+        return "market_open"
+    return "after_market"
+
+
+def get_report_slot(now: datetime | None = None) -> tuple[str, str]:
+    current = now or datetime.now(KST)
+    current_time = current.time()
+    if current_time < time(9, 0):
+        return "🌅 장전 전략", "미국시장과 최근 국내 수급 기반 1차 방향 판단"
+    if current_time < time(10, 30):
+        return "🚀 장초반 확인", "개장 후 수급이 장전 시나리오를 확인하는지 점검"
+    if current_time < time(13, 0):
+        return "☀️ 오전장 점검", "오전 추세의 지속성과 수급 방향 점검"
+    if current_time < time(15, 0):
+        return "🌤 오후 변곡점", "오후 수급 변화와 추세 전환 가능성 점검"
+    return "🔔 마감 직전", "종가 전 최종 수급과 당일 방향 점검"
+
+
+def market_session_label(session: str) -> str:
+    return {
+        "pre_market": "장 개시 전",
+        "market_open": "장중",
+        "after_market": "장 마감 후",
+        "closed": "휴장일",
+    }.get(session, "상태 확인 불가")
+
+
+def format_supply_value(value: int | None, *, kind: str, session: str) -> str:
+    if value is not None:
+        return f"{value:+,}"
+    if kind == "program":
+        if session == "pre_market":
+            return "장 개시 전"
+        if session == "market_open":
+            return "장중 미집계"
+        if session == "closed":
+            return "휴장일"
+    return "미집계"
+
+
+def format_date(value: Any) -> str:
+    raw = str(value or "")
+    if len(raw) == 8 and raw.isdigit():
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+    return raw or "확인 불가"
 
 
 def build_message(
     market: dict[str, float],
     supply: dict[str, Any],
     result: dict[str, Any],
+    now: datetime,
 ) -> str:
+    session = get_market_session(now)
+    report_title, report_purpose = get_report_slot(now)
     reasons = list(result.get("reasons", []))
 
     if not supply.get("program_available"):
-        reasons = [
-            reason
-            for reason in reasons
-            if "프로그램" not in reason
-        ]
-        reasons.append("⚪ 프로그램 수급 미집계")
+        reasons = [reason for reason in reasons if "프로그램" not in reason]
+        if session == "pre_market":
+            reasons.append("⚪ 외국인 프로그램 수급 장 개시 전")
+        elif session == "market_open":
+            reasons.append("⚪ 외국인 프로그램 수급 장중 미집계")
+        elif session == "closed":
+            reasons.append("⚪ 외국인 프로그램 수급 휴장일")
+        else:
+            reasons.append("⚪ 외국인 프로그램 수급 미집계")
 
-    supply_date = str(supply.get("date", ""))
-    if len(supply_date) == 8 and supply_date.isdigit():
-        supply_date = f"{supply_date[:4]}-{supply_date[4:6]}-{supply_date[6:]}"
+    if supply.get("error"):
+        reasons.append("⚠️ 국내 수급 API 일부 또는 전체 조회 실패")
 
     reason_text = "\n".join(reasons) or "⚪ 판단 근거 없음"
+    timestamp = now.strftime("%Y-%m-%d %H:%M KST")
 
-    return f"""🚦 MarketPilot V2
+    return f"""🚦 MarketPilot V3 Final
+{report_title}
+{report_purpose}
+기준 시각 : {timestamp}
 
 ━━━━━━━━━━━━━━
 
@@ -68,11 +130,12 @@ USD/KRW : {market['USDKRW']:+.2f}%
 ━━━━━━━━━━━━━━
 
 📊 국내 수급 · KOSPI
-기준일 : {supply_date or '확인 불가'}
+시장 상태 : {market_session_label(session)}
+수급 기준일 : {format_date(supply.get('date'))}
 
-외국인 : {format_number(supply.get('foreign'))}
-기관 : {format_number(supply.get('institution'))}
-프로그램 : {format_number(supply.get('program'))}
+외국인 : {format_supply_value(supply.get('foreign'), kind='general', session=session)}
+기관 : {format_supply_value(supply.get('institution'), kind='general', session=session)}
+프로그램(외국인) : {format_supply_value(supply.get('program'), kind='program', session=session)}
 
 ━━━━━━━━━━━━━━
 
@@ -81,8 +144,9 @@ USD/KRW : {market['USDKRW']:+.2f}%
 {result['score']} / 100
 
 {result['signal']}
-
+행동 가이드 : {result['action']}
 신뢰도 : {result['confidence']}%
+데이터 완전도 : {result['data_completeness']}%
 
 ━━━━━━━━━━━━━━
 
@@ -90,35 +154,48 @@ USD/KRW : {market['USDKRW']:+.2f}%
 
 {reason_text}
 
-━━━━━━━━━━━━━━"""
+━━━━━━━━━━━━━━
+
+※ 본 신호는 시장 대응을 돕는 참고 지표이며 투자 성과를 보장하지 않습니다."""
 
 
 async def main() -> None:
     bot_token = require_env("BOT_TOKEN")
     chat_id = require_env("CHAT_ID")
     telegram = TelegramService(bot_token)
+    now = datetime.now(KST)
 
     try:
         market = MarketService.get_market_data()
         logger.info("시장 데이터 수집 완료: %s", market)
 
-        supply_service = SupplyAPIService()
-        supply = supply_service.get_supply()
-        logger.info("국내 수급 수집 완료: %s", supply)
+        try:
+            supply = SupplyAPIService().get_supply(session=get_market_session(now))
+            logger.info("국내 수급 수집 완료: %s", supply)
+        except SupplyAPIError as exc:
+            logger.exception("KIS 수급 API 오류 - 시장 점수만으로 계속 실행")
+            supply = {
+                "foreign": None,
+                "institution": None,
+                "program": None,
+                "date": None,
+                "available": False,
+                "program_available": False,
+                "error": str(exc),
+            }
 
-        # 미집계(None)는 점수에서 중립으로 처리하고 메시지에는 그대로 표시한다.
         score_supply = {
             "foreign": supply.get("foreign"),
             "institution": supply.get("institution"),
             "program": supply.get("program"),
         }
+        result = ScoreService().calculate(
+            market,
+            score_supply,
+            session=get_market_session(now),
+        )
+        message = build_message(market, supply, result, now)
 
-        result = ScoreService().calculate(market, score_supply)
-        message = build_message(market, supply, result)
-
-    except SupplyAPIError as exc:
-        logger.exception("KIS 수급 API 오류")
-        message = f"❌ MarketPilot 수급 API 오류\n\n{exc}"
     except Exception as exc:
         logger.exception("MarketPilot 실행 오류")
         message = f"❌ MarketPilot 오류\n\n{type(exc).__name__}: {exc}"
