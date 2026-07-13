@@ -7,7 +7,9 @@ from datetime import datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from services.history_service import HistoryService
 from services.market_service import MarketService
+from services.report_service import ReportService
 from services.score_service import ScoreService
 from services.supply_api_service import SupplyAPIError, SupplyAPIService
 from services.telegram_service import TelegramService
@@ -186,12 +188,7 @@ USD/KRW : {market['USDKRW']:+.2f}%
 ※ 본 신호는 시장 대응을 돕는 참고 지표이며 투자 성과를 보장하지 않습니다."""
 
 
-async def main() -> None:
-    bot_token = require_env("BOT_TOKEN")
-    chat_id = require_env("CHAT_ID")
-    telegram = TelegramService(bot_token)
-    now = datetime.now(KST)
-
+async def run_alert(telegram: TelegramService, chat_id: str, now: datetime) -> None:
     try:
         market = MarketService.get_market_data()
         logger.info("시장 데이터 수집 완료: %s", market)
@@ -202,32 +199,73 @@ async def main() -> None:
         except SupplyAPIError as exc:
             logger.exception("KIS 수급 API 오류 - 시장 점수만으로 계속 실행")
             supply = {
-                "foreign": None,
-                "institution": None,
-                "program": None,
-                "date": None,
-                "available": False,
-                "program_available": False,
+                "foreign": None, "institution": None, "program": None,
+                "date": None, "available": False, "program_available": False,
                 "error": str(exc),
             }
 
+        session = get_market_session(now)
         score_supply = {
             "foreign": supply.get("foreign"),
             "institution": supply.get("institution"),
             "program": supply.get("program"),
         }
-        result = ScoreService().calculate(
-            market,
-            score_supply,
-            session=get_market_session(now),
+        result = ScoreService().calculate(market, score_supply, session=session)
+        slot, _, _ = get_report_slot(now)
+        HistoryService().record_signal(
+            now=now, slot=slot, session=session, market=market, supply=supply, result=result
         )
-        message = build_message(market, supply, result, now)
-
+        await telegram.send(chat_id, build_message(market, supply, result, now))
     except Exception as exc:
-        logger.exception("MarketPilot 실행 오류")
-        message = f"❌ MarketPilot 오류\n\n{type(exc).__name__}: {exc}"
+        logger.exception("MarketPilot 알림 실행 오류")
+        await telegram.send(chat_id, f"❌ MarketPilot 오류\n\n{type(exc).__name__}: {exc}")
 
-    await telegram.send(chat_id, message)
+
+async def run_evaluation(telegram: TelegramService, chat_id: str, now: datetime) -> None:
+    try:
+        result = HistoryService().evaluate_today(now)
+        logger.info("성과 평가 완료: %s", result)
+        if os.getenv("SEND_EVALUATION_SUMMARY", "false").lower() == "true":
+            await telegram.send(
+                chat_id,
+                f"✅ MarketPilot 일일 성과 평가 완료\n"
+                f"기준일 : {result['trade_date']}\n"
+                f"평가 신호 : {result['updated']}건",
+            )
+    except Exception as exc:
+        logger.exception("MarketPilot 성과 평가 오류")
+        await telegram.send(chat_id, f"❌ MarketPilot 성과 평가 오류\n\n{type(exc).__name__}: {exc}")
+
+
+async def run_monthly_report(telegram: TelegramService, chat_id: str, now: datetime) -> None:
+    try:
+        history = HistoryService()
+        start, end = ReportService.previous_month(now.date())
+        pdf_path, csv_path, summary = ReportService(history).generate(start, end)
+        await telegram.send(chat_id, summary)
+        await telegram.send_document(chat_id, pdf_path, caption="MarketPilot 월간 점검보고서 PDF")
+        await telegram.send_document(chat_id, csv_path, caption="MarketPilot 월간 상세 데이터 CSV")
+        logger.info("월간 보고서 전송 완료: %s, %s", pdf_path, csv_path)
+    except Exception as exc:
+        logger.exception("MarketPilot 월간 보고서 오류")
+        await telegram.send(chat_id, f"❌ MarketPilot 월간 보고서 오류\n\n{type(exc).__name__}: {exc}")
+
+
+async def main() -> None:
+    bot_token = require_env("BOT_TOKEN")
+    chat_id = require_env("CHAT_ID")
+    telegram = TelegramService(bot_token)
+    now = datetime.now(KST)
+    mode = os.getenv("RUN_MODE", "alert").strip().lower()
+
+    if mode == "alert":
+        await run_alert(telegram, chat_id, now)
+    elif mode == "evaluate":
+        await run_evaluation(telegram, chat_id, now)
+    elif mode == "monthly_report":
+        await run_monthly_report(telegram, chat_id, now)
+    else:
+        raise RuntimeError(f"지원하지 않는 RUN_MODE: {mode}")
 
 
 if __name__ == "__main__":
