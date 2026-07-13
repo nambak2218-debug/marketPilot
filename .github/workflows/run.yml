@@ -1,22 +1,29 @@
-name: MarketPilot V3 Final
+name: MarketPilot V5 Final
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "실행 모드"
+        required: true
+        default: "alert"
+        type: choice
+        options:
+          - alert
+          - evaluate
+          - monthly_report
   schedule:
-    # GitHub Actions cron은 UTC 기준입니다.
-    # KST 평일 08:20 = 전날 UTC 23:20 (일~목)
-    - cron: "20 23 * * 0-4"
-    # KST 평일 09:10
-    - cron: "10 0 * * 1-5"
-    # KST 평일 11:30
-    - cron: "30 2 * * 1-5"
-    # KST 평일 14:10
-    - cron: "10 5 * * 1-5"
-    # KST 평일 15:15
-    - cron: "15 6 * * 1-5"
+    # GitHub cron은 UTC 기준입니다.
+    - cron: "20 23 * * 0-4"  # KST 평일 08:20
+    - cron: "10 0 * * 1-5"   # KST 평일 09:10
+    - cron: "30 2 * * 1-5"   # KST 평일 11:30
+    - cron: "10 5 * * 1-5"   # KST 평일 14:10
+    - cron: "15 6 * * 1-5"   # KST 평일 15:15
+    - cron: "40 6 * * 1-5"   # KST 평일 15:40 당일 성과 평가
+    - cron: "0 7 1 * *"      # KST 매월 1일 16:00 전월 보고서
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: marketpilot-${{ github.workflow }}-${{ github.ref }}
@@ -25,11 +32,13 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,13 +49,52 @@ jobs:
       - name: Install packages
         run: pip install --disable-pip-version-check -r requirements.txt
 
+      - name: Resolve run mode
+        id: mode
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "40 6 * * 1-5" ]; then
+            echo "value=evaluate" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 7 1 * *" ]; then
+            echo "value=monthly_report" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=alert" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run MarketPilot
         env:
           TZ: Asia/Seoul
           PYTHONUNBUFFERED: "1"
+          RUN_MODE: ${{ steps.mode.outputs.value }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
         run: python app.py
+
+      - name: Commit accumulated history
+        if: always() && steps.mode.outputs.value != 'monthly_report'
+        shell: bash
+        run: |
+          git config user.name "marketpilot-bot"
+          git config user.email "marketpilot-bot@users.noreply.github.com"
+          git add data/signal_history.csv
+          if git diff --cached --quiet; then
+            echo "No history changes"
+            exit 0
+          fi
+          git commit -m "Update MarketPilot signal history [skip ci]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Upload monthly report artifact
+        if: steps.mode.outputs.value == 'monthly_report'
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketpilot-monthly-report
+          path: reports/*
+          if-no-files-found: warn
+          retention-days: 90
