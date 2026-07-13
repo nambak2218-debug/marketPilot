@@ -1,50 +1,56 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import requests
 
-from services.kis_service import KISService
+from services.kis_service import KISService, KISServiceError
+
+logger = logging.getLogger(__name__)
+KST = ZoneInfo("Asia/Seoul")
 
 
 class SupplyAPIError(RuntimeError):
-    """한국투자증권 수급 API 호출 또는 응답 처리 오류."""
+    """KIS 국내 수급 조회 오류."""
 
 
 class SupplyAPIService:
-    """KOSPI 시장 수급과 프로그램매매 수급을 조회한다."""
-
     MARKET_PATH = "/uapi/domestic-stock/v1/quotations/inquire-investor-daily-by-market"
     MARKET_TR_ID = "FHPTJ04040000"
-
     PROGRAM_PATH = "/uapi/domestic-stock/v1/quotations/investor-program-trade-today"
     PROGRAM_TR_ID = "HHPPG046600C1"
 
     def __init__(self, timeout: int = 30) -> None:
-        self.kis = KISService()
+        try:
+            self.kis = KISService()
+        except KISServiceError as exc:
+            raise SupplyAPIError(str(exc)) from exc
         self.timeout = timeout
 
     @staticmethod
-    def _to_int(value: Any) -> int:
+    def _to_int_or_none(value: Any) -> int | None:
         if value in (None, "", "-"):
-            return 0
-        return int(str(value).replace(",", "").strip())
+            return None
+        try:
+            return int(float(str(value).replace(",", "").strip()))
+        except (TypeError, ValueError):
+            return None
 
     def _get(self, path: str, tr_id: str, params: dict[str, str]) -> dict[str, Any]:
-        url = f"{self.kis.base_url.rstrip('/')}{path}"
-        headers = self.kis.get_headers(tr_id)
-
+        url = f"{self.kis.base_url}{path}"
         try:
             response = requests.get(
                 url,
-                headers=headers,
+                headers=self.kis.get_headers(tr_id),
                 params=params,
                 timeout=self.timeout,
             )
             response.raise_for_status()
-        except requests.RequestException as exc:
-            raise SupplyAPIError(f"KIS HTTP 요청 실패: {exc}") from exc
+        except (requests.RequestException, KISServiceError) as exc:
+            raise SupplyAPIError(f"KIS 요청 실패: {exc}") from exc
 
         try:
             payload = response.json()
@@ -52,20 +58,24 @@ class SupplyAPIService:
             raise SupplyAPIError(
                 f"KIS 응답이 JSON이 아닙니다: {response.text[:300]}"
             ) from exc
-
         if str(payload.get("rt_cd", "0")) != "0":
             raise SupplyAPIError(
                 f"KIS API 오류 [{payload.get('msg_cd', 'UNKNOWN')}]: "
                 f"{payload.get('msg1', '알 수 없는 오류')}"
             )
-
         return payload
 
-    def _get_market_supply(self) -> dict[str, Any]:
-        # 휴장일에도 동작하도록 최근 10일을 역순으로 조회한다.
-        today = datetime.now().date()
-        last_error: Exception | None = None
+    @staticmethod
+    def _rows(value: Any) -> list[dict[str, Any]]:
+        if isinstance(value, dict):
+            return [value]
+        if isinstance(value, list):
+            return [row for row in value if isinstance(row, dict)]
+        return []
 
+    def _get_market_supply(self) -> dict[str, Any]:
+        today = datetime.now(KST).date()
+        last_error: Exception | None = None
         for days_ago in range(10):
             target_date = (today - timedelta(days=days_ago)).strftime("%Y%m%d")
             params = {
@@ -76,70 +86,74 @@ class SupplyAPIService:
                 "FID_INPUT_DATE_2": target_date,
                 "FID_INPUT_ISCD_2": "0001",
             }
-
             try:
                 payload = self._get(self.MARKET_PATH, self.MARKET_TR_ID, params)
             except SupplyAPIError as exc:
                 last_error = exc
                 continue
-
-            output = payload.get("output") or []
-            if isinstance(output, dict):
-                rows = [output]
-            elif isinstance(output, list):
-                rows = output
-            else:
-                rows = []
-
+            rows = self._rows(payload.get("output"))
             if not rows:
                 continue
-
             row = rows[0]
+            foreign = self._to_int_or_none(row.get("frgn_ntby_qty"))
+            institution = self._to_int_or_none(row.get("orgn_ntby_qty"))
+            if foreign is None and institution is None:
+                continue
             return {
-                "foreign": self._to_int(row.get("frgn_ntby_qty")),
-                "institution": self._to_int(row.get("orgn_ntby_qty")),
+                "foreign": foreign,
+                "institution": institution,
                 "date": row.get("stck_bsop_date") or target_date,
             }
-
         if last_error:
             raise SupplyAPIError(f"시장 수급 조회 실패: {last_error}")
         raise SupplyAPIError("최근 10일 내 KOSPI 시장 수급 데이터가 없습니다.")
 
-    def _get_program_supply(self) -> int | None:
-        params = {"MRKT_DIV_CLS_CODE": "1"}  # 1: 코스피
-        payload = self._get(self.PROGRAM_PATH, self.PROGRAM_TR_ID, params)
-        output = payload.get("output1") or []
+    @staticmethod
+    def _is_foreign_program_row(row: dict[str, Any]) -> bool:
+        name = str(row.get("invr_cls_name", "")).replace(" ", "").strip()
+        code = str(row.get("invr_cls_code", "")).strip()
+        return "외국" in name or code in {"2", "02", "2000"}
 
-        if isinstance(output, dict):
-            rows = [output]
-        elif isinstance(output, list):
-            rows = output
-        else:
-            rows = []
-
+    def _get_foreign_program_supply(self) -> int | None:
+        payload = self._get(
+            self.PROGRAM_PATH,
+            self.PROGRAM_TR_ID,
+            {"MRKT_DIV_CLS_CODE": "1"},
+        )
+        rows = self._rows(payload.get("output1"))
         if not rows:
             return None
 
-        # 응답에 전체/합계 행이 있으면 그 값을 우선 사용한다.
+        # 공식 API는 투자자별 행을 반환한다. 전체 합계를 임의 합산하지 않고
+        # 방향성이 가장 유용한 외국인 프로그램 순매수 수량을 대표값으로 사용한다.
+        for row in rows:
+            if self._is_foreign_program_row(row):
+                value = self._to_int_or_none(row.get("all_ntby_qty"))
+                if value is not None:
+                    return value
+
+        # 명시적인 전체/합계 행이 있는 계정 환경에서는 해당 값을 보조적으로 사용한다.
         for row in rows:
             name = str(row.get("invr_cls_name", "")).strip()
             code = str(row.get("invr_cls_code", "")).strip()
             if name in {"전체", "합계", "총계"} or code in {"0", "00"}:
-                return self._to_int(row.get("all_ntby_qty"))
+                return self._to_int_or_none(row.get("all_ntby_qty"))
 
-        # 전체 행이 없으면 프로그램 전체값을 임의 합산하지 않는다.
+        logger.warning("프로그램 응답에서 외국인 또는 합계 행을 찾지 못했습니다: %s", rows)
         return None
 
-    def get_supply(self) -> dict[str, Any]:
+    def get_supply(self, *, session: str = "market_open") -> dict[str, Any]:
         market = self._get_market_supply()
-
         program: int | None = None
         program_error: str | None = None
-        try:
-            program = self._get_program_supply()
-        except SupplyAPIError as exc:
-            # 외국인/기관 데이터는 살리고 프로그램 데이터만 미집계 처리한다.
-            program_error = str(exc)
+
+        # 장전에는 당일 프로그램 값이 아직 의미가 없으므로 호출하지 않는다.
+        if session not in {"pre_market", "closed"}:
+            try:
+                program = self._get_foreign_program_supply()
+            except SupplyAPIError as exc:
+                program_error = str(exc)
+                logger.warning("프로그램 수급 조회 실패: %s", exc)
 
         return {
             "foreign": market["foreign"],
@@ -149,4 +163,5 @@ class SupplyAPIService:
             "available": True,
             "program_available": program is not None,
             "program_error": program_error,
+            "error": None,
         }

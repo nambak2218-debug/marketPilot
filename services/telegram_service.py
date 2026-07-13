@@ -19,7 +19,6 @@ class TelegramService:
             raise TelegramServiceError("CHAT_ID가 비어 있습니다.")
         if not text.strip():
             raise TelegramServiceError("전송할 메시지가 비어 있습니다.")
-
         try:
             await self.bot.send_message(chat_id=chat_id, text=text)
         except TelegramError as exc:

@@ -7,7 +7,7 @@ import requests
 
 
 class KISServiceError(RuntimeError):
-    """KIS 인증 또는 공통 요청 설정 오류."""
+    """KIS 인증 또는 공통 설정 오류."""
 
 
 class KISService:
@@ -32,7 +32,6 @@ class KISService:
             "appkey": self.app_key,
             "appsecret": self.app_secret,
         }
-
         try:
             response = requests.post(
                 url,
@@ -55,14 +54,12 @@ class KISService:
         if not token:
             message = payload.get("error_description") or payload.get("msg1") or payload
             raise KISServiceError(f"KIS access_token 발급 실패: {message}")
-
         self.access_token = str(token)
         return self.access_token
 
     def get_headers(self, tr_id: str) -> dict[str, str]:
         if not self.access_token:
             self.get_access_token()
-
         return {
             "content-type": "application/json; charset=utf-8",
             "authorization": f"Bearer {self.access_token}",
