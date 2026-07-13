@@ -2,28 +2,44 @@ name: MarketPilot
 
 on:
   workflow_dispatch:
+  schedule:
+    # 평일 오전 8시 20분(KST). UTC 기준 전날 23시 20분.
+    - cron: "20 23 * * 0-4"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketpilot-daily
+  cancel-in-progress: false
 
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install packages
-        run: pip install -r requirements.txt
+        run: pip install --disable-pip-version-check -r requirements.txt
 
       - name: Run MarketPilot
         env:
+          TZ: Asia/Seoul
+          PYTHONUNBUFFERED: "1"
+
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
 
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
-
         run: python app.py
