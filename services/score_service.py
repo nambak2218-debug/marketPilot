@@ -74,29 +74,95 @@ class ScoreService:
         return 0, f"⚪ {label} 수급 중립", True
 
     @staticmethod
-    def _signal_and_action(score: int, session: str) -> tuple[str, str]:
+    def _signal_and_actions(score: int, session: str) -> tuple[str, list[str]]:
         if score >= 80:
             signal = "🟢 레버리지 우세"
-            action = "상승 흐름 확인 후 분할 접근"
+            actions = [
+                "상승 흐름 확인 후 분할 접근",
+                "급등 추격보다 눌림목 중심 대응",
+                "손절 기준을 정하고 비중 관리",
+            ]
         elif score >= 65:
             signal = "🟢 상승 우세"
-            action = "무리한 추격보다 눌림목 중심 대응"
+            actions = [
+                "무리한 추격보다 눌림목 중심 대응",
+                "수급이 유지되는 종목 위주로 선별",
+                "포지션은 단계적으로 확대",
+            ]
         elif score <= 30:
             signal = "🔴 인버스 우세"
-            action = "반등 추격을 피하고 위험 노출 축소"
+            actions = [
+                "신규 레버리지 진입 자제",
+                "반등 추격을 피하고 위험 노출 축소",
+                "장중 수급 반전 여부 재확인",
+            ]
         elif score <= 45:
             signal = "🔴 하락 우세"
-            action = "신규 진입을 줄이고 방어적으로 대응"
+            actions = [
+                "신규 진입을 줄이고 방어적으로 대응",
+                "약한 반등에서 비중 확대 자제",
+                "외국인·프로그램 수급 확인",
+            ]
         else:
             signal = "🟡 관망"
-            action = "방향 확인 전까지 포지션 확대 자제"
+            actions = [
+                "방향 확인 전까지 포지션 확대 자제",
+                "장중 돌파·이탈 확인 후 대응",
+                "현금 비중을 유지하며 관찰",
+            ]
 
         if session == "pre_market":
-            action += " · 개장 후 수급 재확인"
+            actions[-1] = "개장 후 외국인·프로그램 수급 재확인"
         elif session == "market_open":
-            action += " · 현재 수급 지속 여부 확인"
+            actions[-1] = "현재 수급이 이어지는지 지속 확인"
+        elif session == "after_market":
+            actions[-1] = "마감 수급을 바탕으로 다음 거래일 준비"
 
-        return signal, action
+        return signal, actions
+
+    @staticmethod
+    def _risk_level(score: int, market: dict[str, float]) -> tuple[int, str]:
+        downside = max(0, 50 - score)
+        vix_penalty = max(0.0, market["VIX"]) * 2.0
+        sox_penalty = max(0.0, -market["SOX"]) * 3.0
+        risk_value = downside + vix_penalty + sox_penalty
+
+        if risk_value >= 60:
+            return 5, "매우 높음"
+        if risk_value >= 42:
+            return 4, "높음"
+        if risk_value >= 25:
+            return 3, "보통"
+        if risk_value >= 12:
+            return 2, "낮음"
+        return 1, "매우 낮음"
+
+    @staticmethod
+    def _volatility_level(market: dict[str, float]) -> tuple[int, str]:
+        pressure = abs(market["NASDAQ"]) + abs(market["SOX"]) * 0.8 + max(0.0, market["VIX"]) * 0.45
+        if pressure >= 7.0:
+            return 5, "매우 높음"
+        if pressure >= 4.5:
+            return 4, "높음"
+        if pressure >= 2.5:
+            return 3, "보통"
+        if pressure >= 1.2:
+            return 2, "낮음"
+        return 1, "매우 낮음"
+
+    @staticmethod
+    def _tomorrow_outlook(score: int, confidence: int) -> str:
+        if confidence < 35:
+            return "방향성 불확실 · 다음 거래일 장전 데이터 재확인"
+        if score >= 75:
+            return "긍정 흐름 지속 가능성 우세"
+        if score >= 60:
+            return "완만한 긍정 우세 · 수급 확인 필요"
+        if score <= 25:
+            return "부정 흐름 지속 가능성 우세"
+        if score <= 40:
+            return "약세 지속 가능성 · 반등 강도 확인 필요"
+        return "중립 구간 · 해외시장과 환율 변화 확인"
 
     def calculate(
         self,
@@ -164,7 +230,6 @@ class ScoreService:
         total_items = 8
 
         if supply_data is not None:
-            # 장전에는 전일 외국인·기관은 반영하되 당일 프로그램 미집계는 중립 처리한다.
             supply_rules = (
                 ("foreign", "외국인", 6, 10, 1000),
                 ("institution", "기관", 5, 8, 1000),
@@ -182,18 +247,26 @@ class ScoreService:
                     available_items += 1
 
         score = max(0, min(100, int(round(score))))
-        signal, action = self._signal_and_action(score, session)
+        signal, actions = self._signal_and_actions(score, session)
 
         directional_confidence = min(100, abs(score - 50) * 2)
         completeness = available_items / total_items
         confidence = int(round(directional_confidence * (0.65 + 0.35 * completeness)))
         confidence = max(10, min(100, confidence))
 
+        risk_stars, risk_label = self._risk_level(score, market)
+        volatility_stars, volatility_label = self._volatility_level(market)
+
         return {
             "score": score,
             "signal": signal,
-            "action": action,
+            "actions": actions,
             "confidence": confidence,
             "reasons": reasons,
             "data_completeness": round(completeness * 100),
+            "risk_stars": risk_stars,
+            "risk_label": risk_label,
+            "volatility_stars": volatility_stars,
+            "volatility_label": volatility_label,
+            "tomorrow_outlook": self._tomorrow_outlook(score, confidence),
         }
