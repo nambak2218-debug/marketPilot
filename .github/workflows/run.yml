@@ -47,7 +47,10 @@ jobs:
           cache: pip
 
       - name: Install packages
-        run: pip install --disable-pip-version-check -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -c "import reportlab, exchange_calendars; print('dependencies OK')"
 
       - name: Resolve run mode
         id: mode
@@ -73,6 +76,10 @@ jobs:
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
+          KIS_FUTURES_CODE: ${{ secrets.KIS_FUTURES_CODE }}
+          KIS_NIGHT_FUTURES_CODE: ${{ secrets.KIS_NIGHT_FUTURES_CODE }}
+          SUPPLY_STRONG_THRESHOLD_MKRW: "100000"
+          PROGRAM_STRONG_THRESHOLD_MKRW: "50000"
         run: python app.py
 
       - name: Commit accumulated history
