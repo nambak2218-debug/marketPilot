@@ -25,6 +25,9 @@ class HistoryService:
         "run_at", "trade_date", "slot", "session", "score", "signal_code",
         "signal_text", "confidence", "data_completeness", "nasdaq", "sp500",
         "sox", "vix", "usdkrw", "foreign", "institution", "program",
+        "program_total",
+        "futures_day_disparity", "futures_day_basis",
+        "futures_night_disparity", "futures_night_basis",
         "kospi_at_signal", "kospi_entry_price", "kospi_close",
         "return_after_signal", "result", "evaluated_at",
     ]
@@ -112,6 +115,18 @@ class HistoryService:
                 writer.writerow({key: row.get(key, "") for key in self.FIELDNAMES})
         temp.replace(self.path)
 
+    @staticmethod
+    def _futures_fields(futures: dict[str, Any] | None) -> dict[str, Any]:
+        futures = futures or {}
+        day = futures.get("day") or {}
+        night = futures.get("night") or {}
+        return {
+            "futures_day_disparity": day.get("disparity") if day.get("disparity") is not None else "",
+            "futures_day_basis": day.get("basis") if day.get("basis") is not None else "",
+            "futures_night_disparity": night.get("disparity") if night.get("disparity") is not None else "",
+            "futures_night_basis": night.get("basis") if night.get("basis") is not None else "",
+        }
+
     def record_signal(
         self,
         *,
@@ -121,6 +136,7 @@ class HistoryService:
         market: dict[str, float],
         supply: dict[str, Any],
         result: dict[str, Any],
+        futures: dict[str, Any] | None = None,
     ) -> bool:
         rows = self._read_rows()
         run_at = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -149,6 +165,8 @@ class HistoryService:
             "foreign": supply.get("foreign") if supply.get("foreign") is not None else "",
             "institution": supply.get("institution") if supply.get("institution") is not None else "",
             "program": supply.get("program") if supply.get("program") is not None else "",
+            "program_total": supply.get("program_total") if supply.get("program_total") is not None else "",
+            **self._futures_fields(futures),
             "kospi_at_signal": signal_price,
             "kospi_entry_price": "",
             "kospi_close": "",
