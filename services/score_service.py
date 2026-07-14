@@ -228,7 +228,8 @@ class ScoreService:
             score += delta
             reasons.append(reason)
 
-        available_items = 5
+        market_keys = ("NASDAQ", "SP500", "SOX", "VIX", "USDKRW")
+        available_items = sum(1 for key in market_keys if market.get(key) is not None)
         total_items = 8
 
         if supply_data is not None:
