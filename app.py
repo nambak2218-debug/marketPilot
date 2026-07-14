@@ -73,9 +73,9 @@ def format_money_mkrw(value: int | None) -> str:
     if value is None: return "미집계"
     return f"{value / 100:+,.0f}억원"
 
-def format_supply_value(value: int | None, *, kind: str, session: str) -> str:
+def format_supply_value(value: int | None, *, kind: str, session: str, unit: str = "") -> str:
     if value is not None:
-        return f"{value:+,}"
+        return f"{value:+,}{unit}"
     if kind == "program":
         if session == "pre_market":
             return "장 개시 전"
@@ -110,7 +110,9 @@ def build_message(
 
     if not supply.get("program_available"):
         reasons = [reason for reason in reasons if "프로그램" not in reason]
-        if session == "pre_market":
+        if supply.get("program_error"):
+            reasons.append("⚠️ 외국인 프로그램 수급 조회 실패 (API 오류)")
+        elif session == "pre_market":
             reasons.append("⚪ 외국인 프로그램 수급 장 개시 전")
         elif session == "market_open":
             reasons.append("⚪ 외국인 프로그램 수급 장중 미집계")
@@ -169,8 +171,8 @@ KOSPI200 : {format_pct(market.get('KOSPI200'))}
 
 외국인 : {format_money_mkrw(supply.get('foreign'))}
 기관 : {format_money_mkrw(supply.get('institution'))}
-프로그램 전체 : {format_supply_value(supply.get('program_total'), kind='program', session=session)}주
-프로그램(외국인) : {format_supply_value(supply.get('program'), kind='program', session=session)}주
+프로그램 전체 : {format_supply_value(supply.get('program_total'), kind='program', session=session, unit='주')}
+프로그램(외국인) : {format_supply_value(supply.get('program'), kind='program', session=session, unit='주')}
 
 ━━━━━━━━━━━━━━
 
