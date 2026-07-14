@@ -119,25 +119,30 @@ class SupplyAPIService:
         code = str(row.get("invr_cls_code", "")).strip()
         return "외국" in name or code in {"2", "02", "2000"}
 
+    def _get_program_supply(self) -> tuple[int | None, int | None]:
+        payload = self._get(
+            self.PROGRAM_PATH,
+            self.PROGRAM_TR_ID,
+            {"MRKT_DIV_CLS_CODE": "1"},
+        )
+        rows = self._rows(payload.get("output1"))
+        if not rows:
+            return None, None
 
-def _get_program_supply(self) -> tuple[int | None, int | None]:
-    payload = self._get(self.PROGRAM_PATH, self.PROGRAM_TR_ID, {"MRKT_DIV_CLS_CODE": "1"})
-    rows = self._rows(payload.get("output1"))
-    if not rows:
-        return None, None
-    foreign = None
-    total = None
-    for row in rows:
-        name = str(row.get("invr_cls_name", "")).replace(" ", "").strip()
-        code = str(row.get("invr_cls_code", "")).strip()
-        value = self._to_int_or_none(row.get("all_ntby_qty"))
-        if value is None:
-            continue
-        if "외국" in name or code in {"2", "02", "2000"}:
-            foreign = value
-        if name in {"전체", "합계", "총계"} or code in {"0", "00"}:
-            total = value
-    return foreign, total
+        foreign = None
+        total = None
+        for row in rows:
+            name = str(row.get("invr_cls_name", "")).replace(" ", "").strip()
+            code = str(row.get("invr_cls_code", "")).strip()
+            value = self._to_int_or_none(row.get("all_ntby_qty"))
+            if value is None:
+                continue
+            if self._is_foreign_program_row(row):
+                foreign = value
+            if name in {"전체", "합계", "총계"} or code in {"0", "00"}:
+                total = value
+
+        return foreign, total
 
     def get_supply(self, *, session: str = "market_open") -> dict[str, Any]:
         market = self._get_market_supply()
@@ -156,12 +161,16 @@ def _get_program_supply(self) -> tuple[int | None, int | None]:
         return {
             "foreign": market["foreign"],
             "institution": market["institution"],
+            "foreign_qty": market.get("foreign_qty"),
+            "institution_qty": market.get("institution_qty"),
+            "supply_unit": market.get("supply_unit", "백만원"),
             "program": program,
             "program_total": program_total,
             "program_unit": "주",
             "date": market["date"],
             "available": True,
             "program_available": program is not None,
+            "program_total_available": program_total is not None,
             "program_error": program_error,
             "error": None,
         }
