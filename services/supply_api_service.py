@@ -114,36 +114,36 @@ class SupplyAPIService:
             raise SupplyAPIError(f"시장 수급 조회 실패: {last_error}")
         raise SupplyAPIError("최근 10일 내 KOSPI 시장 수급 데이터가 없습니다.")
 
-    @staticmethod
-    def _is_foreign_program_row(row: dict[str, Any]) -> bool:
-        name = str(row.get("invr_cls_name", "")).replace(" ", "").strip()
-        code = str(row.get("invr_cls_code", "")).strip()
-        return "외국" in name or code in {"2", "02", "2000"}
+    # 문서(프로그램매매 투자자매매동향(당일), 국내주식-116) 기준 최상위 투자자 코드.
+    # 응답엔 "전체/합계" 행이 따로 없고, 개인·외국인·기관(하위구분 소계) 3개로 시장 전체가 구성됨.
+    TOP_LEVEL_CODES = {"8000": "개인", "9100": "외국인", "8888": "기관"}
+    FOREIGN_CODE = "9100"
 
     def _get_program_supply(self) -> tuple[int | None, int | None]:
-        params = {"MRKT_DIV_CLS_CODE": "1"}
-        # KIS가 'EXCH_DIV_CLS_CODE' 필드 누락(OPSQ2001) 오류를 반환해서 추가.
-        # 정확한 허용값은 KIS Developers 포털에서 확인 후 아래 env로 조정하세요.
-        exch_div = os.getenv("KIS_PROGRAM_EXCH_DIV_CLS_CODE")
-        if exch_div:
-            params["EXCH_DIV_CLS_CODE"] = exch_div
+        params = {
+            "MRKT_DIV_CLS_CODE": "1",
+            # J: KRX, NX: NXT, UN: 통합 (KIS 문서 "프로그램매매 투자자매매동향(당일)" 기준)
+            "EXCH_DIV_CLS_CODE": os.getenv("KIS_PROGRAM_EXCH_DIV_CLS_CODE", "UN"),
+        }
         payload = self._get(self.PROGRAM_PATH, self.PROGRAM_TR_ID, params)
         rows = self._rows(payload.get("output1"))
         if not rows:
             return None, None
 
         foreign = None
-        total = None
+        top_level_values: dict[str, int] = {}
         for row in rows:
-            name = str(row.get("invr_cls_name", "")).replace(" ", "").strip()
             code = str(row.get("invr_cls_code", "")).strip()
             value = self._to_int_or_none(row.get("all_ntby_qty"))
             if value is None:
                 continue
-            if self._is_foreign_program_row(row):
+            if code == self.FOREIGN_CODE:
                 foreign = value
-            if name in {"전체", "합계", "총계"} or code in {"0", "00"}:
-                total = value
+            if code in self.TOP_LEVEL_CODES:
+                top_level_values[code] = value
+
+        # 개인+외국인+기관(소계) 세 최상위 카테고리를 더하면 시장 전체 순매수가 된다.
+        total = sum(top_level_values.values()) if len(top_level_values) == len(self.TOP_LEVEL_CODES) else None
 
         return foreign, total
 
