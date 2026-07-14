@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -120,11 +121,13 @@ class SupplyAPIService:
         return "외국" in name or code in {"2", "02", "2000"}
 
     def _get_program_supply(self) -> tuple[int | None, int | None]:
-        payload = self._get(
-            self.PROGRAM_PATH,
-            self.PROGRAM_TR_ID,
-            {"MRKT_DIV_CLS_CODE": "1"},
-        )
+        params = {"MRKT_DIV_CLS_CODE": "1"}
+        # KIS가 'EXCH_DIV_CLS_CODE' 필드 누락(OPSQ2001) 오류를 반환해서 추가.
+        # 정확한 허용값은 KIS Developers 포털에서 확인 후 아래 env로 조정하세요.
+        exch_div = os.getenv("KIS_PROGRAM_EXCH_DIV_CLS_CODE")
+        if exch_div:
+            params["EXCH_DIV_CLS_CODE"] = exch_div
+        payload = self._get(self.PROGRAM_PATH, self.PROGRAM_TR_ID, params)
         rows = self._rows(payload.get("output1"))
         if not rows:
             return None, None
