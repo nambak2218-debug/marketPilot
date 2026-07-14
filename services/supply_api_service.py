@@ -137,7 +137,9 @@ class SupplyAPIService:
         top_level_values: dict[str, int] = {}
         for row in rows:
             code = str(row.get("invr_cls_code", "")).strip()
-            value = self._to_int_or_none(row.get("all_ntby_qty"))
+            # all_ntby_qty(수량) 대신 all_ntby_amt(대금, 백만원)를 사용해
+            # 외국인/기관 수급(대금 기준)과 단위를 통일한다.
+            value = self._to_int_or_none(row.get("all_ntby_amt"))
             if value is None:
                 continue
             if code == self.FOREIGN_CODE:
@@ -172,7 +174,7 @@ class SupplyAPIService:
             "supply_unit": market.get("supply_unit", "백만원"),
             "program": program,
             "program_total": program_total,
-            "program_unit": "주",
+            "program_unit": "백만원",
             "date": market["date"],
             "available": True,
             "program_available": program is not None,

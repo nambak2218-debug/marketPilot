@@ -236,7 +236,9 @@ class ScoreService:
             supply_rules = (
                 ("foreign", "외국인", 6, 10, int(os.getenv("SUPPLY_STRONG_THRESHOLD_MKRW", "100000"))),
                 ("institution", "기관", 5, 8, int(os.getenv("SUPPLY_STRONG_THRESHOLD_MKRW", "100000"))),
-                ("program", "외국인 프로그램", 4, 6, int(os.getenv("PROGRAM_STRONG_THRESHOLD_SHARES", "100000"))),
+                # all_ntby_qty(수량) -> all_ntby_amt(대금, 백만원)로 변경됨에 따라 임계값도 금액 기준으로 변경.
+                # 외국인 프로그램은 외국인 전체 순매수의 부분집합이라 기본 임계값을 더 낮게 잡는다.
+                ("program", "외국인 프로그램", 4, 6, int(os.getenv("PROGRAM_STRONG_THRESHOLD_MKRW", "50000"))),
             )
             for key, label, normal, strong, threshold in supply_rules:
                 delta, reason, available = self._supply_score(
