@@ -175,8 +175,8 @@ KOSPI200 : {format_pct(market.get('KOSPI200'))}
 
 외국인 : {format_money_mkrw(supply.get('foreign'))}
 기관 : {format_money_mkrw(supply.get('institution'))}
-프로그램 전체 : {format_supply_value(supply.get('program_total'), kind='program', session=session, unit='주')}
-프로그램(외국인) : {format_supply_value(supply.get('program'), kind='program', session=session, unit='주')}
+프로그램 전체 : {format_money_mkrw(supply.get('program_total')) if supply.get('program_total') is not None else format_supply_value(None, kind='program', session=session)}
+프로그램(외국인) : {format_money_mkrw(supply.get('program')) if supply.get('program') is not None else format_supply_value(None, kind='program', session=session)}
 
 ━━━━━━━━━━━━━━
 
