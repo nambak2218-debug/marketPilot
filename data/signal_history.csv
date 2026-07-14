@@ -1,3 +1,4 @@
 ﻿run_at,trade_date,slot,session,score,signal_code,signal_text,confidence,data_completeness,nasdaq,sp500,sox,vix,usdkrw,foreign,institution,program,program_total,futures_day_disparity,futures_day_basis,futures_night_disparity,futures_night_basis,kospi_at_signal,kospi_entry_price,kospi_close,return_after_signal,result,evaluated_at
 2026-07-14 09:44:05,2026-07-14,opening,market_open,32,INVERSE,🔴 하락 우세,34,88,-1.55,-0.79,-4.78,14.17,-0.01,5274,1291381,,,,,,,6782.5400390625,,,,,
 2026-07-14 10:12:58,2026-07-14,opening,market_open,36,INVERSE,🔴 하락 우세,27,88,-1.55,-0.79,-4.78,14.17,-0.35,254883,1684240,,,,,,,6857.490234375,,,,,
+2026-07-14 10:24:52,2026-07-14,opening,market_open,36,INVERSE,🔴 하락 우세,27,88,-1.55,-0.79,-4.78,14.17,-0.44,243953,1798343,,,,,,,6975.10986328125,,,,,
