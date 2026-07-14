@@ -231,7 +231,8 @@ async def run_alert(telegram: TelegramService, chat_id: str, now: datetime) -> N
         result = ScoreService().calculate(market, score_supply, session=session, futures_data=futures)
         slot, _, _ = get_report_slot(now)
         HistoryService().record_signal(
-            now=now, slot=slot, session=session, market=market, supply=supply, result=result
+            now=now, slot=slot, session=session, market=market, supply=supply,
+            result=result, futures=futures,
         )
         await telegram.send(chat_id, build_message(market, supply, result, now))
     except Exception as exc:
