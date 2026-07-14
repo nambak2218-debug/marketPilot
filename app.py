@@ -8,8 +8,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from services.history_service import HistoryService
+from services.calendar_service import CalendarService
+from services.futures_service import FuturesService
 from services.market_service import MarketService
-from services.report_service import ReportService
 from services.score_service import ScoreService
 from services.supply_api_service import SupplyAPIError, SupplyAPIService
 from services.telegram_service import TelegramService
@@ -32,7 +33,7 @@ def require_env(name: str) -> str:
 
 def get_market_session(now: datetime | None = None) -> str:
     current = now or datetime.now(KST)
-    if current.weekday() >= 5:
+    if not CalendarService.is_trading_day(current):
         return "closed"
     if current.time() < time(9, 0):
         return "pre_market"
@@ -63,6 +64,14 @@ def market_session_label(session: str) -> str:
         "closed": "휴장일",
     }.get(session, "상태 확인 불가")
 
+
+
+def format_pct(value: float | None) -> str:
+    return "데이터 없음" if value is None else f"{value:+.2f}%"
+
+def format_money_mkrw(value: int | None) -> str:
+    if value is None: return "미집계"
+    return f"{value / 100:+,.0f}억원"
 
 def format_supply_value(value: int | None, *, kind: str, session: str) -> str:
     if value is not None:
@@ -136,14 +145,21 @@ def build_message(
 
 🇺🇸 미국시장
 
-NASDAQ : {market['NASDAQ']:+.2f}%
-S&P500 : {market['SP500']:+.2f}%
-SOX : {market['SOX']:+.2f}%
-VIX : {market['VIX']:+.2f}%
+NASDAQ : {format_pct(market.get('NASDAQ'))}
+S&P500 : {format_pct(market.get('SP500'))}
+SOX : {format_pct(market.get('SOX'))}
+VIX : {format_pct(market.get('VIX'))}
 
 💵 환율
 
-USD/KRW : {market['USDKRW']:+.2f}%
+USD/KRW : {format_pct(market.get('USDKRW'))}
+
+━━━━━━━━━━━━━━
+
+📈 국내 지수
+
+KOSPI : {format_pct(market.get('KOSPI'))}
+KOSPI200 : {format_pct(market.get('KOSPI200'))}
 
 ━━━━━━━━━━━━━━
 
@@ -151,9 +167,10 @@ USD/KRW : {market['USDKRW']:+.2f}%
 시장 상태 : {market_session_label(session)}
 수급 기준일 : {format_date(supply.get('date'))}
 
-외국인 : {format_supply_value(supply.get('foreign'), kind='general', session=session)}
-기관 : {format_supply_value(supply.get('institution'), kind='general', session=session)}
-프로그램(외국인) : {format_supply_value(supply.get('program'), kind='program', session=session)}
+외국인 : {format_money_mkrw(supply.get('foreign'))}
+기관 : {format_money_mkrw(supply.get('institution'))}
+프로그램 전체 : {format_supply_value(supply.get('program_total'), kind='program', session=session)}주
+프로그램(외국인) : {format_supply_value(supply.get('program'), kind='program', session=session)}주
 
 ━━━━━━━━━━━━━━
 
@@ -210,7 +227,8 @@ async def run_alert(telegram: TelegramService, chat_id: str, now: datetime) -> N
             "institution": supply.get("institution"),
             "program": supply.get("program"),
         }
-        result = ScoreService().calculate(market, score_supply, session=session)
+        futures = FuturesService().get_data()
+        result = ScoreService().calculate(market, score_supply, session=session, futures_data=futures)
         slot, _, _ = get_report_slot(now)
         HistoryService().record_signal(
             now=now, slot=slot, session=session, market=market, supply=supply, result=result
@@ -239,6 +257,7 @@ async def run_evaluation(telegram: TelegramService, chat_id: str, now: datetime)
 
 async def run_monthly_report(telegram: TelegramService, chat_id: str, now: datetime) -> None:
     try:
+        from services.report_service import ReportService
         history = HistoryService()
         start, end = ReportService.previous_month(now.date())
         pdf_path, csv_path, summary = ReportService(history).generate(start, end)
@@ -257,6 +276,13 @@ async def main() -> None:
     telegram = TelegramService(bot_token)
     now = datetime.now(KST)
     mode = os.getenv("RUN_MODE", "alert").strip().lower()
+
+    if mode == "alert" and not CalendarService.is_trading_day(now):
+        logger.info("KRX 휴장일이므로 알림을 건너뜁니다: %s", now.date())
+        return
+    if mode == "evaluate" and not CalendarService.is_trading_day(now):
+        logger.info("KRX 휴장일이므로 평가를 건너뜁니다: %s", now.date())
+        return
 
     if mode == "alert":
         await run_alert(telegram, chat_id, now)
