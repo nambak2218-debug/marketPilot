@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
@@ -8,7 +9,7 @@ class ScoreService:
 
     @staticmethod
     def _direction_score(
-        value: float,
+        value: float | None,
         *,
         positive_points: int,
         negative_points: int,
@@ -19,6 +20,8 @@ class ScoreService:
         strong_negative_reason: str,
         neutral_reason: str,
     ) -> tuple[int, str]:
+        if value is None:
+            return 0, neutral_reason.replace("보합", "데이터 없음")
         if value >= strong_threshold:
             return positive_points, strong_positive_reason
         if value > 0:
@@ -31,7 +34,7 @@ class ScoreService:
 
     @staticmethod
     def _inverse_score(
-        value: float,
+        value: float | None,
         *,
         positive_points: int,
         negative_points: int,
@@ -42,6 +45,8 @@ class ScoreService:
         strong_negative_reason: str,
         neutral_reason: str,
     ) -> tuple[int, str]:
+        if value is None:
+            return 0, neutral_reason.replace("보합", "데이터 없음")
         if value <= -strong_threshold:
             return positive_points, strong_positive_reason
         if value < 0:
@@ -123,8 +128,8 @@ class ScoreService:
     @staticmethod
     def _risk_level(score: int, market: dict[str, float]) -> tuple[int, str]:
         downside = max(0, 50 - score)
-        vix_penalty = max(0.0, market["VIX"]) * 2.0
-        sox_penalty = max(0.0, -market["SOX"]) * 3.0
+        vix_penalty = max(0.0, market.get("VIX") or 0.0) * 2.0
+        sox_penalty = max(0.0, -(market.get("SOX") or 0.0)) * 3.0
         risk_value = downside + vix_penalty + sox_penalty
 
         if risk_value >= 60:
@@ -139,7 +144,7 @@ class ScoreService:
 
     @staticmethod
     def _volatility_level(market: dict[str, float]) -> tuple[int, str]:
-        pressure = abs(market["NASDAQ"]) + abs(market["SOX"]) * 0.8 + max(0.0, market["VIX"]) * 0.45
+        pressure = abs(market.get("NASDAQ") or 0.0) + abs(market.get("SOX") or 0.0) * 0.8 + max(0.0, market.get("VIX") or 0.0) * 0.45
         if pressure >= 7.0:
             return 5, "매우 높음"
         if pressure >= 4.5:
@@ -166,15 +171,12 @@ class ScoreService:
 
     def calculate(
         self,
-        market: dict[str, float],
+        market: dict[str, float | None],
         supply_data: dict[str, int | None] | None = None,
         *,
         session: str = "market_open",
+        futures_data: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        required = {"NASDAQ", "SP500", "SOX", "VIX", "USDKRW"}
-        missing = sorted(required - market.keys())
-        if missing:
-            raise ValueError(f"시장 데이터 누락: {', '.join(missing)}")
 
         score = 50
         reasons: list[str] = []
@@ -231,9 +233,9 @@ class ScoreService:
 
         if supply_data is not None:
             supply_rules = (
-                ("foreign", "외국인", 6, 10, 1000),
-                ("institution", "기관", 5, 8, 1000),
-                ("program", "외국인 프로그램", 4, 6, 500),
+                ("foreign", "외국인", 6, 10, int(os.getenv("SUPPLY_STRONG_THRESHOLD_MKRW", "100000"))),
+                ("institution", "기관", 5, 8, int(os.getenv("SUPPLY_STRONG_THRESHOLD_MKRW", "100000"))),
+                ("program", "외국인 프로그램", 4, 6, int(os.getenv("PROGRAM_STRONG_THRESHOLD_SHARES", "100000"))),
             )
             for key, label, normal, strong, threshold in supply_rules:
                 delta, reason, available = self._supply_score(
@@ -245,6 +247,21 @@ class ScoreService:
                 reasons.append(reason)
                 if available:
                     available_items += 1
+
+        if futures_data and futures_data.get("available"):
+            chosen = futures_data.get("day") or futures_data.get("night") or {}
+            disparity = chosen.get("disparity")
+            basis = chosen.get("basis")
+            if disparity is not None:
+                if disparity >= 0.3: score += 7; reasons.append("✅ 선물 괴리율 강한 플러스")
+                elif disparity > 0: score += 4; reasons.append("✅ 선물 괴리율 플러스")
+                elif disparity <= -0.3: score -= 7; reasons.append("⚠️ 선물 괴리율 강한 마이너스")
+                elif disparity < 0: score -= 4; reasons.append("⚠️ 선물 괴리율 마이너스")
+                available_items += 1; total_items += 1
+            elif basis is not None:
+                if basis > 0: score += 3; reasons.append("✅ 선물 시장 베이시스 플러스")
+                elif basis < 0: score -= 3; reasons.append("⚠️ 선물 시장 베이시스 마이너스")
+                available_items += 1; total_items += 1
 
         score = max(0, min(100, int(round(score))))
         signal, actions = self._signal_and_actions(score, session)

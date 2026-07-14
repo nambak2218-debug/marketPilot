@@ -95,13 +95,18 @@ class SupplyAPIService:
             if not rows:
                 continue
             row = rows[0]
-            foreign = self._to_int_or_none(row.get("frgn_ntby_qty"))
-            institution = self._to_int_or_none(row.get("orgn_ntby_qty"))
+            foreign = self._to_int_or_none(row.get("frgn_ntby_tr_pbmn"))
+            institution = self._to_int_or_none(row.get("orgn_ntby_tr_pbmn"))
+            foreign_qty = self._to_int_or_none(row.get("frgn_ntby_qty"))
+            institution_qty = self._to_int_or_none(row.get("orgn_ntby_qty"))
             if foreign is None and institution is None:
                 continue
             return {
                 "foreign": foreign,
                 "institution": institution,
+                "foreign_qty": foreign_qty,
+                "institution_qty": institution_qty,
+                "supply_unit": "백만원",
                 "date": row.get("stck_bsop_date") or target_date,
             }
         if last_error:
@@ -114,43 +119,36 @@ class SupplyAPIService:
         code = str(row.get("invr_cls_code", "")).strip()
         return "외국" in name or code in {"2", "02", "2000"}
 
-    def _get_foreign_program_supply(self) -> int | None:
-        payload = self._get(
-            self.PROGRAM_PATH,
-            self.PROGRAM_TR_ID,
-            {"MRKT_DIV_CLS_CODE": "1"},
-        )
-        rows = self._rows(payload.get("output1"))
-        if not rows:
-            return None
 
-        # 공식 API는 투자자별 행을 반환한다. 전체 합계를 임의 합산하지 않고
-        # 방향성이 가장 유용한 외국인 프로그램 순매수 수량을 대표값으로 사용한다.
-        for row in rows:
-            if self._is_foreign_program_row(row):
-                value = self._to_int_or_none(row.get("all_ntby_qty"))
-                if value is not None:
-                    return value
-
-        # 명시적인 전체/합계 행이 있는 계정 환경에서는 해당 값을 보조적으로 사용한다.
-        for row in rows:
-            name = str(row.get("invr_cls_name", "")).strip()
-            code = str(row.get("invr_cls_code", "")).strip()
-            if name in {"전체", "합계", "총계"} or code in {"0", "00"}:
-                return self._to_int_or_none(row.get("all_ntby_qty"))
-
-        logger.warning("프로그램 응답에서 외국인 또는 합계 행을 찾지 못했습니다: %s", rows)
-        return None
+def _get_program_supply(self) -> tuple[int | None, int | None]:
+    payload = self._get(self.PROGRAM_PATH, self.PROGRAM_TR_ID, {"MRKT_DIV_CLS_CODE": "1"})
+    rows = self._rows(payload.get("output1"))
+    if not rows:
+        return None, None
+    foreign = None
+    total = None
+    for row in rows:
+        name = str(row.get("invr_cls_name", "")).replace(" ", "").strip()
+        code = str(row.get("invr_cls_code", "")).strip()
+        value = self._to_int_or_none(row.get("all_ntby_qty"))
+        if value is None:
+            continue
+        if "외국" in name or code in {"2", "02", "2000"}:
+            foreign = value
+        if name in {"전체", "합계", "총계"} or code in {"0", "00"}:
+            total = value
+    return foreign, total
 
     def get_supply(self, *, session: str = "market_open") -> dict[str, Any]:
         market = self._get_market_supply()
         program: int | None = None
+        program_total: int | None = None
         program_error: str | None = None
 
         # 장전에는 당일 프로그램 값이 아직 의미가 없으므로 호출하지 않는다.
         if session not in {"pre_market", "closed"}:
             try:
-                program = self._get_foreign_program_supply()
+                program, program_total = self._get_program_supply()
             except SupplyAPIError as exc:
                 program_error = str(exc)
                 logger.warning("프로그램 수급 조회 실패: %s", exc)
@@ -159,6 +157,8 @@ class SupplyAPIService:
             "foreign": market["foreign"],
             "institution": market["institution"],
             "program": program,
+            "program_total": program_total,
+            "program_unit": "주",
             "date": market["date"],
             "available": True,
             "program_available": program is not None,
