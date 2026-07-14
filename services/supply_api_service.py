@@ -24,11 +24,14 @@ class SupplyAPIService:
     PROGRAM_PATH = "/uapi/domestic-stock/v1/quotations/investor-program-trade-today"
     PROGRAM_TR_ID = "HHPPG046600C1"
 
-    def __init__(self, timeout: int = 30) -> None:
-        try:
-            self.kis = KISService()
-        except KISServiceError as exc:
-            raise SupplyAPIError(str(exc)) from exc
+    def __init__(self, kis: KISService | None = None, timeout: int = 30) -> None:
+        if kis is not None:
+            self.kis = kis
+        else:
+            try:
+                self.kis = KISService()
+            except KISServiceError as exc:
+                raise SupplyAPIError(str(exc)) from exc
         self.timeout = timeout
 
     @staticmethod

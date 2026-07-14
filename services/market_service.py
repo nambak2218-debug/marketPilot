@@ -49,7 +49,7 @@ class MarketService:
     MAX_DOMESTIC_INDEX_GAP_PCT = 3.0
 
     @classmethod
-    def get_market_data(cls) -> dict[str, float | None]:
+    def get_market_data(cls, kis: KISService | None = None) -> dict[str, float | None]:
         result: dict[str, float | None] = {}
 
         # 해외시장과 환율은 기존 Yahoo 재시도 구조를 유지한다.
@@ -57,7 +57,7 @@ class MarketService:
             result[name] = cls._change_with_retry(symbol)
 
         # 국내 지수는 KIS를 우선 사용한다.
-        domestic = cls._get_domestic_indices()
+        domestic = cls._get_domestic_indices(kis)
         result.update(domestic)
 
         cls._validate_domestic_indices(result)
@@ -69,14 +69,16 @@ class MarketService:
         return result
 
     @classmethod
-    def _get_domestic_indices(cls) -> dict[str, float | None]:
+    def _get_domestic_indices(cls, kis: KISService | None = None) -> dict[str, float | None]:
         result: dict[str, float | None] = {}
 
-        try:
-            kis = KISService()
-        except Exception as exc:
-            logger.warning("KIS 초기화 실패, 국내 지수는 Yahoo 보조 사용: %s", exc)
-            kis = None
+        # 외부에서 공유 인스턴스를 넘겨받으면 그대로 사용해 토큰 재발급을 피한다.
+        if kis is None:
+            try:
+                kis = KISService()
+            except Exception as exc:
+                logger.warning("KIS 초기화 실패, 국내 지수는 Yahoo 보조 사용: %s", exc)
+                kis = None
 
         for name, index_code in cls.KIS_INDEX_CODES.items():
             value: float | None = None
@@ -100,6 +102,7 @@ class MarketService:
             result[name] = value
 
         return result
+
 
     @classmethod
     def _get_kis_index_change_with_retry(
