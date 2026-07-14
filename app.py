@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from services.history_service import HistoryService
 from services.calendar_service import CalendarService
 from services.futures_service import FuturesService
+from services.kis_service import KISService, KISServiceError
 from services.market_service import MarketService
 from services.score_service import ScoreService
 from services.supply_api_service import SupplyAPIError, SupplyAPIService
@@ -122,7 +123,10 @@ def build_message(
             reasons.append("⚪ 외국인 프로그램 수급 미집계")
 
     if supply.get("error"):
-        reasons.append("⚠️ 국내 수급 API 일부 또는 전체 조회 실패")
+        error_text = str(supply["error"])
+        if len(error_text) > 120:
+            error_text = error_text[:120] + "..."
+        reasons.append(f"⚠️ 국내 수급 API 조회 실패: {error_text}")
 
     reason_text = "\n".join(reasons) or "⚪ 판단 근거 없음"
     timestamp = now.strftime("%Y-%m-%d %H:%M KST")
@@ -209,11 +213,20 @@ KOSPI200 : {format_pct(market.get('KOSPI200'))}
 
 async def run_alert(telegram: TelegramService, chat_id: str, now: datetime) -> None:
     try:
-        market = MarketService.get_market_data()
+        # 한 실행 안에서 KIS 토큰을 한 번만 발급받아 재사용한다.
+        # (MarketService/SupplyAPIService가 각자 토큰을 발급받으면
+        #  KIS의 짧은 시간 내 토큰 재발급 제한에 걸려 간헐적으로 인증이 실패할 수 있다.)
+        try:
+            shared_kis = KISService()
+        except KISServiceError as exc:
+            logger.warning("공유 KISService 생성 실패, 서비스별 개별 발급으로 대체: %s", exc)
+            shared_kis = None
+
+        market = MarketService.get_market_data(kis=shared_kis)
         logger.info("시장 데이터 수집 완료: %s", market)
 
         try:
-            supply = SupplyAPIService().get_supply(session=get_market_session(now))
+            supply = SupplyAPIService(kis=shared_kis).get_supply(session=get_market_session(now))
             logger.info("국내 수급 수집 완료: %s", supply)
         except SupplyAPIError as exc:
             logger.exception("KIS 수급 API 오류 - 시장 점수만으로 계속 실행")
