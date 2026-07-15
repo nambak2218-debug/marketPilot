@@ -59,14 +59,45 @@ class MarketService:
     @classmethod
     def get_market_data(cls, kis: KISService | None = None) -> dict[str, float | None]:
         result: dict[str, float | None] = {}
+        dated: dict[str, tuple[float, Any] | None] = {}
 
-        # 해외시장과 환율은 기존 Yahoo 재시도 구조를 유지한다.
-        for name, symbol in cls.OVERSEAS_SYMBOLS.items():
-            result[name] = cls._change_with_retry(symbol)
-
-        # 선물지수는 정보 표시용 - 실패해도 알림 전체를 막지 않는다.
+        # 선물은 데이터 피드가 가장 신뢰할 수 있어서, 먼저 조회해 "최신 거래일" 기준으로 쓴다.
         for name, symbol in cls.FUTURES_SYMBOLS.items():
-            result[name] = cls._change_with_retry(symbol)
+            dated[name] = cls._change_with_retry(symbol)
+            result[name] = dated[name][0] if dated[name] else None
+
+        reference_date = max(
+            (d for d in (dated.get("SP500_FUT"), dated.get("NASDAQ_FUT")) if d),
+            key=lambda d: d[1],
+            default=None,
+        )
+        reference_date = reference_date[1] if reference_date else None
+
+        fallback_map = {"NASDAQ": "NASDAQ_FUT", "SP500": "SP500_FUT"}
+
+        for name, symbol in cls.OVERSEAS_SYMBOLS.items():
+            fetched = cls._change_with_retry(symbol)
+
+            if fetched is None:
+                result[name] = None
+                continue
+
+            pct, latest_date = fetched
+            # 선물의 최신 거래일보다 하루 넘게 오래됐으면 Yahoo 지수 피드에 구멍이 난 것으로 보고
+            # 조용히 틀린 값을 쓰는 대신 대체하거나 데이터 없음으로 처리한다.
+            if reference_date is not None and latest_date is not None and (reference_date - latest_date).days > 1:
+                logger.warning(
+                    "%s 최신 유효 데이터(%s)가 선물 기준일(%s)보다 오래됨 - 피드 지연 의심",
+                    symbol, latest_date, reference_date,
+                )
+                fallback_key = fallback_map.get(name)
+                if fallback_key and result.get(fallback_key) is not None:
+                    logger.warning("%s -> %s 선물값으로 대체", name, fallback_key)
+                    result[name] = result[fallback_key]
+                else:
+                    result[name] = None
+            else:
+                result[name] = pct
 
         # 국내 지수는 KIS를 우선 사용한다.
         domestic = cls._get_domestic_indices(kis)
@@ -77,6 +108,8 @@ class MarketService:
         essential = ["NASDAQ", "SP500", "SOX", "VIX", "USDKRW"]
         if all(result.get(key) is None for key in essential):
             raise MarketDataError("필수 해외시장 데이터가 모두 수집되지 않았습니다.")
+
+        return result
 
         return result
 
@@ -109,7 +142,8 @@ class MarketService:
                     name,
                     yahoo_symbol,
                 )
-                value = cls._change_with_retry(yahoo_symbol)
+                fetched = cls._change_with_retry(yahoo_symbol)
+                value = fetched[0] if fetched else None
 
             result[name] = value
 
@@ -214,7 +248,7 @@ class MarketService:
         cls,
         symbol: str,
         attempts: int = 3,
-    ) -> float | None:
+    ) -> tuple[float, Any] | None:
         for attempt in range(1, attempts + 1):
             try:
                 return cls._change(symbol)
@@ -231,7 +265,7 @@ class MarketService:
         return None
 
     @staticmethod
-    def _change(symbol: str) -> float:
+    def _change(symbol: str) -> tuple[float, Any]:
         # period="10d"처럼 고정된 문자열은 매일 완전히 동일한 요청이 되어
         # Yahoo/yfinance 쪽 캐시에 걸려 어제 값이 재사용될 위험이 있다.
         # start/end를 오늘 날짜 기준으로 매번 새로 계산해 요청 자체를 달라지게 한다.
@@ -252,10 +286,11 @@ class MarketService:
 
         previous = float(close.iloc[-2])
         latest = float(close.iloc[-1])
+        latest_date = close.index[-1].date()
         if previous == 0:
             raise MarketDataError(f"{symbol} 이전 종가 0")
 
-        return round((latest - previous) / previous * 100, 2)
+        return round((latest - previous) / previous * 100, 2), latest_date
 
     @staticmethod
     def _to_float(value: Any) -> float | None:
