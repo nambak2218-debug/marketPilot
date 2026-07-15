@@ -66,10 +66,11 @@ class MarketService:
     KIS_OVERSEAS_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price-detail"
 
     # SOX/VIX를 Yahoo 대신 KIS로 직접 조회할 때 쓸 대체 종목(EXCD, SYMB).
-    # VIXY의 정확한 EXCD는 문서만으로 확정하지 못해 NYS로 시도 - 실패 로그로 확인 필요.
+    # VIXY는 NYSE Arca 상장 - NYS로는 빈 응답이 와서 AMS로 변경 (Arca 상장 ETF가
+    # 국내 증권사 API에서 아멕스(AMS) 코드로 묶이는 경우가 많음). 그래도 안 되면 재확인 필요.
     KIS_OVERSEAS_PROXIES = {
         "SOX": ("NAS", "SOXX"),
-        "VIX": ("NYS", "VIXY"),
+        "VIX": ("AMS", "VIXY"),
     }
 
     # 두 지수의 일간 등락률 차이가 이 값 이상이면 KOSPI200을 이상치로 처리한다.
