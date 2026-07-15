@@ -41,6 +41,14 @@ class MarketService:
         "NASDAQ_FUT": "NQ=F",
     }
 
+    # ^SOX/^VIX 원본 지수 피드에 구멍이 생겼을 때 대신 쓸 실거래 ETF.
+    # SOXX는 SOX를 추적오차 작게 따라가지만, VIXY는 VIX 선물 기반이라
+    # 콘탱고로 인해 등락률이 현물 VIX와 정확히 일치하지는 않는다(완벽한 대체는 아님).
+    PROXY_SYMBOLS = {
+        "SOX_PROXY": "SOXX",
+        "VIX_PROXY": "VIXY",
+    }
+
     DOMESTIC_YAHOO_SYMBOLS = {
         "KOSPI": "^KS11",
         "KOSPI200": "^KS200",
@@ -82,6 +90,10 @@ class MarketService:
             dated[name] = cls._change_with_retry(symbol)
             result[name] = dated[name][0] if dated[name] else None
 
+        # SOX/VIX 원본 피드가 막혔을 때 대신 쓸 ETF 프록시도 미리 조회해둔다.
+        for name, symbol in cls.PROXY_SYMBOLS.items():
+            dated[name] = cls._change_with_retry(symbol)
+
         reference_date = max(
             (d for d in (dated.get("SP500_FUT"), dated.get("NASDAQ_FUT")) if d),
             key=lambda d: d[1],
@@ -89,7 +101,12 @@ class MarketService:
         )
         reference_date = reference_date[1] if reference_date else None
 
-        fallback_map = {"NASDAQ": "NASDAQ_FUT", "SP500": "SP500_FUT"}
+        fallback_map = {
+            "NASDAQ": "NASDAQ_FUT",
+            "SP500": "SP500_FUT",
+            "SOX": "SOX_PROXY",
+            "VIX": "VIX_PROXY",
+        }
 
         for name, symbol in cls.OVERSEAS_SYMBOLS.items():
             fetched = cls._change_with_retry(symbol)
@@ -107,9 +124,11 @@ class MarketService:
                     symbol, latest_date, reference_date,
                 )
                 fallback_key = fallback_map.get(name)
-                if fallback_key and result.get(fallback_key) is not None:
-                    logger.warning("%s -> %s 선물값으로 대체", name, fallback_key)
-                    result[name] = result[fallback_key]
+                fallback = dated.get(fallback_key) if fallback_key else None
+                # 대체 후보(프록시/선물) 자체도 최신인지 확인 후에만 사용한다.
+                if fallback and not cls._has_weekday_gap(fallback[1], reference_date):
+                    logger.warning("%s -> %s(으)로 대체", name, fallback_key)
+                    result[name] = fallback[0]
                 else:
                     # 스코어링에는 안 쓰지만(None), 메시지 표시용으로 마지막 확인값은 남겨둔다.
                     result[name] = None
