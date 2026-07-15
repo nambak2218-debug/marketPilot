@@ -70,6 +70,18 @@ def market_session_label(session: str) -> str:
 def format_pct(value: float | None) -> str:
     return "데이터 없음" if value is None else f"{value:+.2f}%"
 
+def format_pct_with_stale_fallback(market: dict, key: str) -> str:
+    """실시간 값이 없으면(스코어링 제외 상태) 마지막으로 확인된 값을 날짜와 함께 표시한다."""
+    value = market.get(key)
+    if value is not None:
+        return format_pct(value)
+    stale_value = market.get(f"{key}_stale_value")
+    stale_date = market.get(f"{key}_stale_date")
+    if stale_value is None:
+        return "데이터 없음"
+    date_note = f" ({stale_date})" if stale_date else ""
+    return f"{stale_value:+.2f}%{date_note}"
+
 def format_money_mkrw(value: int | None) -> str:
     if value is None: return "미집계"
     return f"{value / 100:+,.0f}억원"
@@ -153,8 +165,8 @@ def build_message(
 
 NASDAQ : {format_pct(market.get('NASDAQ'))}
 S&P500 : {format_pct(market.get('SP500'))}
-SOX : {format_pct(market.get('SOX'))}
-VIX : {format_pct(market.get('VIX'))}
+SOX : {format_pct_with_stale_fallback(market, 'SOX')}
+VIX : {format_pct_with_stale_fallback(market, 'VIX')}
 
 (선물) S&P500 : {format_pct(market.get('SP500_FUT'))}
 (선물) 나스닥 : {format_pct(market.get('NASDAQ_FUT'))}
