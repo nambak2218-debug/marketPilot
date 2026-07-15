@@ -111,7 +111,10 @@ class MarketService:
                     logger.warning("%s -> %s 선물값으로 대체", name, fallback_key)
                     result[name] = result[fallback_key]
                 else:
+                    # 스코어링에는 안 쓰지만(None), 메시지 표시용으로 마지막 확인값은 남겨둔다.
                     result[name] = None
+                    result[f"{name}_stale_value"] = pct
+                    result[f"{name}_stale_date"] = latest_date.isoformat()
             else:
                 result[name] = pct
 
@@ -124,8 +127,6 @@ class MarketService:
         essential = ["NASDAQ", "SP500", "SOX", "VIX", "USDKRW"]
         if all(result.get(key) is None for key in essential):
             raise MarketDataError("필수 해외시장 데이터가 모두 수집되지 않았습니다.")
-
-        return result
 
         return result
 
