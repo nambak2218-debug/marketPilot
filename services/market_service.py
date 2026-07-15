@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -220,8 +221,14 @@ class MarketService:
 
     @staticmethod
     def _change(symbol: str) -> float:
+        # period="10d"처럼 고정된 문자열은 매일 완전히 동일한 요청이 되어
+        # Yahoo/yfinance 쪽 캐시에 걸려 어제 값이 재사용될 위험이 있다.
+        # start/end를 오늘 날짜 기준으로 매번 새로 계산해 요청 자체를 달라지게 한다.
+        end = datetime.now(timezone.utc) + timedelta(days=1)
+        start = end - timedelta(days=15)
         df: Any = yf.Ticker(symbol).history(
-            period="10d",
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
             interval="1d",
             auto_adjust=True,
         )
