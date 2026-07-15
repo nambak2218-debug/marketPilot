@@ -156,6 +156,9 @@ S&P500 : {format_pct(market.get('SP500'))}
 SOX : {format_pct(market.get('SOX'))}
 VIX : {format_pct(market.get('VIX'))}
 
+(선물) S&P500 : {format_pct(market.get('SP500_FUT'))}
+(선물) 나스닥 : {format_pct(market.get('NASDAQ_FUT'))}
+
 💵 환율
 
 USD/KRW : {format_pct(market.get('USDKRW'))}
