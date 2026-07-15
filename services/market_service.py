@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -64,6 +65,17 @@ class MarketService:
 
     KIS_OVERSEAS_PRICE_TR_ID = "HHDFS76200200"
     KIS_OVERSEAS_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price-detail"
+
+    KIS_OVERSEAS_INDEX_TR_ID = "FHKST03030100"
+    KIS_OVERSEAS_INDEX_PATH = "/uapi/overseas-price/v1/quotations/inquire-daily-chartprice"
+
+    # 나스닥/S&P500을 선물 대체 대신 실제 지수값으로 직접 받기 위한 코드.
+    # 문서 예시에 다우(.DJI)만 확인 가능했고 나스닥/S&P500 코드는 추정치 -
+    # 응답이 비어있으면(로그 확인) 실제 코드로 조정 필요. env로 바로 교체 가능.
+    KIS_OVERSEAS_INDEX_CODES = {
+        "NASDAQ": os.getenv("KIS_NASDAQ_INDEX_CODE", ".IXIC"),
+        "SP500": os.getenv("KIS_SP500_INDEX_CODE", ".SPX"),
+    }
 
     # SOX/VIX를 Yahoo 대신 KIS로 직접 조회할 때 쓸 대체 종목(EXCD, SYMB).
     # VIXY는 NYSE Arca 상장 - NYS로는 빈 응답이 와서 AMS로 변경 (Arca 상장 ETF가
@@ -140,6 +152,58 @@ class MarketService:
         return round((last - base) / base * 100, 2)
 
     @classmethod
+    def _get_kis_overseas_index_change_with_retry(
+        cls,
+        kis: KISService,
+        name: str,
+        index_code: str,
+        attempts: int = 2,
+    ) -> float | None:
+        for attempt in range(1, attempts + 1):
+            try:
+                return cls._get_kis_overseas_index_change(kis, index_code)
+            except Exception as exc:
+                logger.warning(
+                    "%s(KIS 해외지수 %s) 수집 실패 (%s/%s): %s",
+                    name, index_code, attempt, attempts, exc,
+                )
+                if attempt < attempts:
+                    time.sleep(attempt * 2)
+        return None
+
+    @staticmethod
+    def _get_kis_overseas_index_change(kis: KISService, index_code: str) -> float:
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=10)
+        url = f"{kis.base_url}{MarketService.KIS_OVERSEAS_INDEX_PATH}"
+        headers = kis.get_headers(MarketService.KIS_OVERSEAS_INDEX_TR_ID)
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "N",
+            "FID_INPUT_ISCD": index_code,
+            "FID_INPUT_DATE_1": start.strftime("%Y%m%d"),
+            "FID_INPUT_DATE_2": end.strftime("%Y%m%d"),
+            "FID_PERIOD_DIV_CODE": "D",
+        }
+
+        response = requests.get(url, headers=headers, params=params, timeout=20)
+        response.raise_for_status()
+
+        payload = response.json()
+        if str(payload.get("rt_cd", "0")) not in {"0", ""}:
+            message = payload.get("msg1") or payload.get("msg_cd") or "알 수 없는 오류"
+            raise MarketDataError(f"KIS 해외지수 오류: {message}")
+
+        output1 = payload.get("output1")
+        if not isinstance(output1, dict):
+            raise MarketDataError(f"{index_code} 응답에 output1이 없습니다.")
+
+        pct = MarketService._to_float(output1.get("prdy_ctrt"))
+        if pct is None:
+            raise MarketDataError(f"{index_code} 등락률 파싱 실패 - 원본 응답: {output1}")
+
+        return round(pct, 2)
+
+    @classmethod
     def get_market_data(cls, kis: KISService | None = None) -> dict[str, float | None]:
         result: dict[str, float | None] = {}
         dated: dict[str, tuple[float, Any] | None] = {}
@@ -177,9 +241,17 @@ class MarketService:
             return not cls._has_weekday_gap(latest, reference_date) and not cls._has_weekday_gap(previous, latest)
 
         for name, symbol in cls.OVERSEAS_SYMBOLS.items():
-            # SOX/VIX는 Yahoo(지수/ETF)보다 KIS 해외주식 현재가상세를 먼저 시도한다.
-            # KIS는 과거 며칠치를 비교할 필요 없이 현재가 vs 전일종가를 바로 주기 때문에
-            # 지금까지 겪은 "며칠치 데이터 중 어디가 최신인지" 문제 자체가 생기지 않는다.
+            # SOX/VIX는 KIS 해외주식 현재가상세(ETF)를, 나스닥/S&P500은 KIS 해외지수를
+            # Yahoo보다 먼저 시도한다. 둘 다 "과거 며칠치 중 최신 찾기"가 필요 없어서
+            # 지금까지 겪은 Yahoo발 데이터 공백 문제가 원천적으로 생기지 않는다.
+            if kis is not None and name in cls.KIS_OVERSEAS_INDEX_CODES:
+                index_code = cls.KIS_OVERSEAS_INDEX_CODES[name]
+                kis_pct = cls._get_kis_overseas_index_change_with_retry(kis, name, index_code)
+                if kis_pct is not None:
+                    result[name] = kis_pct
+                    continue
+                logger.warning("%s KIS 해외지수 조회 실패 - 기존 체인으로 대체", name)
+
             if kis is not None and name in cls.KIS_OVERSEAS_PROXIES:
                 excd, symb = cls.KIS_OVERSEAS_PROXIES[name]
                 kis_pct = cls._get_kis_overseas_change_with_retry(kis, name, excd, symb)
