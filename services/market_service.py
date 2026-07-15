@@ -108,6 +108,15 @@ class MarketService:
             "VIX": "VIX_PROXY",
         }
 
+        def is_fresh(dated_tuple: tuple[float, Any, Any] | None) -> bool:
+            if dated_tuple is None:
+                return False
+            _, latest, previous = dated_tuple
+            # (1) 최신값 자체가 기준일보다 오래되지 않았는지
+            # (2) 등락률 계산에 쓰인 두 날짜(최신/직전) 사이에 평일이 비어있지 않은지
+            #     - 둘 다 확인해야 "날짜는 최신인데 비교 대상이 이틀 전"인 경우를 잡아낸다.
+            return not cls._has_weekday_gap(latest, reference_date) and not cls._has_weekday_gap(previous, latest)
+
         for name, symbol in cls.OVERSEAS_SYMBOLS.items():
             fetched = cls._change_with_retry(symbol)
 
@@ -115,18 +124,16 @@ class MarketService:
                 result[name] = None
                 continue
 
-            pct, latest_date = fetched
-            # 선물의 최신 거래일과 이 지수의 최신 유효일 사이에 "평일"이 비어있으면
-            # Yahoo 지수 피드에 구멍이 난 것으로 본다. 주말만 낀 정상 케이스는 걸리지 않는다.
-            if cls._has_weekday_gap(latest_date, reference_date):
+            pct, latest_date, previous_date = fetched
+            if not is_fresh(fetched):
                 logger.warning(
-                    "%s 최신 유효 데이터(%s)가 선물 기준일(%s)보다 오래됨 - 피드 지연 의심",
-                    symbol, latest_date, reference_date,
+                    "%s 데이터 신선도 문제 (최신=%s, 직전=%s, 기준=%s) - 피드 지연 의심",
+                    symbol, latest_date, previous_date, reference_date,
                 )
                 fallback_key = fallback_map.get(name)
                 fallback = dated.get(fallback_key) if fallback_key else None
-                # 대체 후보(프록시/선물) 자체도 최신인지 확인 후에만 사용한다.
-                if fallback and not cls._has_weekday_gap(fallback[1], reference_date):
+                # 대체 후보(프록시/선물)도 같은 기준으로 신선도를 확인한 후에만 사용한다.
+                if fallback and is_fresh(fallback):
                     logger.warning("%s -> %s(으)로 대체", name, fallback_key)
                     result[name] = fallback[0]
                 else:
@@ -301,7 +308,7 @@ class MarketService:
         return None
 
     @staticmethod
-    def _change(symbol: str) -> tuple[float, Any]:
+    def _change(symbol: str) -> tuple[float, Any, Any]:
         # period="10d"처럼 고정된 문자열은 매일 완전히 동일한 요청이 되어
         # Yahoo/yfinance 쪽 캐시에 걸려 어제 값이 재사용될 위험이 있다.
         # start/end를 오늘 날짜 기준으로 매번 새로 계산해 요청 자체를 달라지게 한다.
@@ -323,10 +330,11 @@ class MarketService:
         previous = float(close.iloc[-2])
         latest = float(close.iloc[-1])
         latest_date = close.index[-1].date()
+        previous_date = close.index[-2].date()
         if previous == 0:
             raise MarketDataError(f"{symbol} 이전 종가 0")
 
-        return round((latest - previous) / previous * 100, 2), latest_date
+        return round((latest - previous) / previous * 100, 2), latest_date, previous_date
 
     @staticmethod
     def _to_float(value: Any) -> float | None:
