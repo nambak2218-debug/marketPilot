@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+import pandas as pd
 import requests
 import yfinance as yf
 
@@ -56,6 +57,21 @@ class MarketService:
     # 두 지수의 일간 등락률 차이가 이 값 이상이면 KOSPI200을 이상치로 처리한다.
     MAX_DOMESTIC_INDEX_GAP_PCT = 3.0
 
+    @staticmethod
+    def _has_weekday_gap(latest_date: date | None, reference_date: date | None) -> bool:
+        """latest_date와 reference_date 사이에 평일(영업일)이 하나라도 비어있으면 True.
+
+        주말만 끼어있는 경우(금요일 데이터 vs 월요일 확인)는 정상이므로 False를 반환한다.
+        미국 공휴일까지는 반영하지 않아 드물게 오탐이 있을 수 있다.
+        """
+        if latest_date is None or reference_date is None or reference_date <= latest_date:
+            return False
+        gap_days = pd.bdate_range(
+            start=latest_date + timedelta(days=1),
+            end=reference_date - timedelta(days=1),
+        )
+        return len(gap_days) > 0
+
     @classmethod
     def get_market_data(cls, kis: KISService | None = None) -> dict[str, float | None]:
         result: dict[str, float | None] = {}
@@ -83,9 +99,9 @@ class MarketService:
                 continue
 
             pct, latest_date = fetched
-            # 선물의 최신 거래일보다 하루 넘게 오래됐으면 Yahoo 지수 피드에 구멍이 난 것으로 보고
-            # 조용히 틀린 값을 쓰는 대신 대체하거나 데이터 없음으로 처리한다.
-            if reference_date is not None and latest_date is not None and (reference_date - latest_date).days > 1:
+            # 선물의 최신 거래일과 이 지수의 최신 유효일 사이에 "평일"이 비어있으면
+            # Yahoo 지수 피드에 구멍이 난 것으로 본다. 주말만 낀 정상 케이스는 걸리지 않는다.
+            if cls._has_weekday_gap(latest_date, reference_date):
                 logger.warning(
                     "%s 최신 유효 데이터(%s)가 선물 기준일(%s)보다 오래됨 - 피드 지연 의심",
                     symbol, latest_date, reference_date,

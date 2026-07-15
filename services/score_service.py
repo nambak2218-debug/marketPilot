@@ -127,33 +127,53 @@ class ScoreService:
 
     @staticmethod
     def _risk_level(score: int, market: dict[str, float]) -> tuple[int, str]:
+        vix = market.get("VIX")
+        sox = market.get("SOX")
+
         downside = max(0, 50 - score)
-        vix_penalty = max(0.0, market.get("VIX") or 0.0) * 2.0
-        sox_penalty = max(0.0, -(market.get("SOX") or 0.0)) * 3.0
+        vix_penalty = max(0.0, vix or 0.0) * 2.0
+        sox_penalty = max(0.0, -(sox or 0.0)) * 3.0
         risk_value = downside + vix_penalty + sox_penalty
 
         if risk_value >= 60:
-            return 5, "매우 높음"
-        if risk_value >= 42:
-            return 4, "높음"
-        if risk_value >= 25:
-            return 3, "보통"
-        if risk_value >= 12:
-            return 2, "낮음"
-        return 1, "매우 낮음"
+            level = 5, "매우 높음"
+        elif risk_value >= 42:
+            level = 4, "높음"
+        elif risk_value >= 25:
+            level = 3, "보통"
+        elif risk_value >= 12:
+            level = 2, "낮음"
+        else:
+            level = 1, "매우 낮음"
+
+        # VIX/SOX는 위험도 판단의 핵심 입력값이다. 둘 중 하나라도 없으면
+        # "사실은 위험한데 모르는 것"과 "진짜 안전한 것"을 구분할 수 없으므로
+        # 데이터 없음을 이유로 위험도가 실제보다 낮게 표시되지 않도록 '보통' 밑으로 내려가지 않게 한다.
+        if (vix is None or sox is None) and level[0] < 3:
+            return 3, "보통(데이터 일부 누락)"
+        return level
 
     @staticmethod
     def _volatility_level(market: dict[str, float]) -> tuple[int, str]:
-        pressure = abs(market.get("NASDAQ") or 0.0) + abs(market.get("SOX") or 0.0) * 0.8 + max(0.0, market.get("VIX") or 0.0) * 0.45
+        vix = market.get("VIX")
+        sox = market.get("SOX")
+
+        pressure = abs(market.get("NASDAQ") or 0.0) + abs(sox or 0.0) * 0.8 + max(0.0, vix or 0.0) * 0.45
+
         if pressure >= 7.0:
-            return 5, "매우 높음"
-        if pressure >= 4.5:
-            return 4, "높음"
-        if pressure >= 2.5:
-            return 3, "보통"
-        if pressure >= 1.2:
-            return 2, "낮음"
-        return 1, "매우 낮음"
+            level = 5, "매우 높음"
+        elif pressure >= 4.5:
+            level = 4, "높음"
+        elif pressure >= 2.5:
+            level = 3, "보통"
+        elif pressure >= 1.2:
+            level = 2, "낮음"
+        else:
+            level = 1, "매우 낮음"
+
+        if (vix is None or sox is None) and level[0] < 3:
+            return 3, "보통(데이터 일부 누락)"
+        return level
 
     @staticmethod
     def _tomorrow_outlook(score: int, confidence: int) -> str:
