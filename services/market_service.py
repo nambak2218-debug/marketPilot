@@ -33,6 +33,13 @@ class MarketService:
         "USDKRW": "KRW=X",
     }
 
+    # 정보 표시용 선물지수. 스코어 계산(score_service.py)에는 넣지 않는다 -
+    # 이미 검증된 가중치를 건드리지 않기 위해 우선 화면 표시만 한다.
+    FUTURES_SYMBOLS = {
+        "SP500_FUT": "ES=F",
+        "NASDAQ_FUT": "NQ=F",
+    }
+
     DOMESTIC_YAHOO_SYMBOLS = {
         "KOSPI": "^KS11",
         "KOSPI200": "^KS200",
@@ -55,6 +62,10 @@ class MarketService:
 
         # 해외시장과 환율은 기존 Yahoo 재시도 구조를 유지한다.
         for name, symbol in cls.OVERSEAS_SYMBOLS.items():
+            result[name] = cls._change_with_retry(symbol)
+
+        # 선물지수는 정보 표시용 - 실패해도 알림 전체를 막지 않는다.
+        for name, symbol in cls.FUTURES_SYMBOLS.items():
             result[name] = cls._change_with_retry(symbol)
 
         # 국내 지수는 KIS를 우선 사용한다.
