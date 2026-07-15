@@ -62,6 +62,16 @@ class MarketService:
     KIS_INDEX_TR_ID = "FHPUP02100000"
     KIS_INDEX_PATH = "/uapi/domestic-stock/v1/quotations/inquire-index-price"
 
+    KIS_OVERSEAS_PRICE_TR_ID = "HHDFS76200200"
+    KIS_OVERSEAS_PRICE_PATH = "/uapi/overseas-price/v1/quotations/price-detail"
+
+    # SOX/VIX를 Yahoo 대신 KIS로 직접 조회할 때 쓸 대체 종목(EXCD, SYMB).
+    # VIXY의 정확한 EXCD는 문서만으로 확정하지 못해 NYS로 시도 - 실패 로그로 확인 필요.
+    KIS_OVERSEAS_PROXIES = {
+        "SOX": ("NAS", "SOXX"),
+        "VIX": ("NYS", "VIXY"),
+    }
+
     # 두 지수의 일간 등락률 차이가 이 값 이상이면 KOSPI200을 이상치로 처리한다.
     MAX_DOMESTIC_INDEX_GAP_PCT = 3.0
 
@@ -79,6 +89,52 @@ class MarketService:
             end=reference_date - timedelta(days=1),
         )
         return len(gap_days) > 0
+
+    @classmethod
+    def _get_kis_overseas_change_with_retry(
+        cls,
+        kis: KISService,
+        name: str,
+        excd: str,
+        symb: str,
+        attempts: int = 2,
+    ) -> float | None:
+        for attempt in range(1, attempts + 1):
+            try:
+                return cls._get_kis_overseas_change(kis, excd, symb)
+            except Exception as exc:
+                logger.warning(
+                    "%s(KIS 해외주식 %s:%s) 수집 실패 (%s/%s): %s",
+                    name, excd, symb, attempt, attempts, exc,
+                )
+                if attempt < attempts:
+                    time.sleep(attempt * 2)
+        return None
+
+    @staticmethod
+    def _get_kis_overseas_change(kis: KISService, excd: str, symb: str) -> float:
+        url = f"{kis.base_url}{MarketService.KIS_OVERSEAS_PRICE_PATH}"
+        headers = kis.get_headers(MarketService.KIS_OVERSEAS_PRICE_TR_ID)
+        params = {"AUTH": "", "EXCD": excd, "SYMB": symb}
+
+        response = requests.get(url, headers=headers, params=params, timeout=20)
+        response.raise_for_status()
+
+        payload = response.json()
+        if str(payload.get("rt_cd", "0")) not in {"0", ""}:
+            message = payload.get("msg1") or payload.get("msg_cd") or "알 수 없는 오류"
+            raise MarketDataError(f"KIS 해외주식 현재가상세 오류: {message}")
+
+        output = payload.get("output")
+        if not isinstance(output, dict):
+            raise MarketDataError(f"{symb} 응답에 output이 없습니다.")
+
+        last = MarketService._to_float(output.get("last"))
+        base = MarketService._to_float(output.get("base"))
+        if last is None or base is None or base == 0:
+            raise MarketDataError(f"{symb} 현재가/전일종가 파싱 실패")
+
+        return round((last - base) / base * 100, 2)
 
     @classmethod
     def get_market_data(cls, kis: KISService | None = None) -> dict[str, float | None]:
@@ -118,6 +174,17 @@ class MarketService:
             return not cls._has_weekday_gap(latest, reference_date) and not cls._has_weekday_gap(previous, latest)
 
         for name, symbol in cls.OVERSEAS_SYMBOLS.items():
+            # SOX/VIX는 Yahoo(지수/ETF)보다 KIS 해외주식 현재가상세를 먼저 시도한다.
+            # KIS는 과거 며칠치를 비교할 필요 없이 현재가 vs 전일종가를 바로 주기 때문에
+            # 지금까지 겪은 "며칠치 데이터 중 어디가 최신인지" 문제 자체가 생기지 않는다.
+            if kis is not None and name in cls.KIS_OVERSEAS_PROXIES:
+                excd, symb = cls.KIS_OVERSEAS_PROXIES[name]
+                kis_pct = cls._get_kis_overseas_change_with_retry(kis, name, excd, symb)
+                if kis_pct is not None:
+                    result[name] = kis_pct
+                    continue
+                logger.warning("%s KIS 해외주식 조회 실패 - Yahoo 체인으로 대체", name)
+
             fetched = cls._change_with_retry(symbol)
 
             if fetched is None:
