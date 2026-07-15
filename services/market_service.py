@@ -132,7 +132,9 @@ class MarketService:
         last = MarketService._to_float(output.get("last"))
         base = MarketService._to_float(output.get("base"))
         if last is None or base is None or base == 0:
-            raise MarketDataError(f"{symb} 현재가/전일종가 파싱 실패")
+            raise MarketDataError(
+                f"{symb} 현재가/전일종가 파싱 실패 - 원본 응답: {output}"
+            )
 
         return round((last - base) / base * 100, 2)
 
