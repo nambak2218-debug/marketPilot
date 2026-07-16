@@ -129,11 +129,15 @@ class ScoreService:
     def _risk_level(score: int, market: dict[str, float]) -> tuple[int, str]:
         vix = market.get("VIX")
         sox = market.get("SOX")
+        kospi = market.get("KOSPI")
 
         downside = max(0, 50 - score)
         vix_penalty = max(0.0, vix or 0.0) * 2.0
         sox_penalty = max(0.0, -(sox or 0.0)) * 3.0
-        risk_value = downside + vix_penalty + sox_penalty
+        # 코스피 자체의 당일 실제 등락폭 - 방향(상승/하락) 관계없이 크게 움직인 날은
+        # 그 자체로 위험도가 높다(레버리지 상품일수록 당일 변동폭이 곧 리스크이므로 최우선 반영).
+        kospi_penalty = abs(kospi or 0.0) * 4.0
+        risk_value = downside + vix_penalty + sox_penalty + kospi_penalty
 
         if risk_value >= 60:
             level = 5, "매우 높음"
@@ -157,8 +161,14 @@ class ScoreService:
     def _volatility_level(market: dict[str, float]) -> tuple[int, str]:
         vix = market.get("VIX")
         sox = market.get("SOX")
+        kospi = market.get("KOSPI")
 
-        pressure = abs(market.get("NASDAQ") or 0.0) + abs(sox or 0.0) * 0.8 + max(0.0, vix or 0.0) * 0.45
+        pressure = (
+            abs(market.get("NASDAQ") or 0.0)
+            + abs(sox or 0.0) * 0.8
+            + max(0.0, vix or 0.0) * 0.45
+            + abs(kospi or 0.0) * 0.5
+        )
 
         if pressure >= 7.0:
             level = 5, "매우 높음"
