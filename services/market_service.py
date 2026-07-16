@@ -200,6 +200,12 @@ class MarketService:
         pct = MarketService._to_float(output1.get("prdy_ctrt"))
         if pct is None:
             raise MarketDataError(f"{index_code} 등락률 파싱 실패 - 원본 응답: {output1}")
+        if pct == 0.0:
+            # 지수가 하루 종일 정확히 0.00%로 마감하는 일은 사실상 없다.
+            # 코드가 KIS에 인식 안 돼 빈/더미 응답이 "0.00"으로 온 것으로 의심하고 실패 처리한다.
+            raise MarketDataError(
+                f"{index_code} 등락률이 0.00%로 응답됨(코드 인식 실패 의심) - 원본 응답: {output1}"
+            )
 
         return round(pct, 2)
 
