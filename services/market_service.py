@@ -149,7 +149,14 @@ class MarketService:
                 f"{symb} 현재가/전일종가 파싱 실패 - 원본 응답: {output}"
             )
 
-        return round((last - base) / base * 100, 2)
+        pct = round((last - base) / base * 100, 2)
+        if pct == 0.0:
+            # SOX/VIX(대체 ETF) 둘 다 하루 종일 정확히 0.00%로 마감하는 일은 사실상 없다.
+            # last==base로 나온 응답을 의심하고 실패 처리해 Yahoo 체인으로 넘긴다.
+            raise MarketDataError(
+                f"{symb} 등락률이 0.00%로 응답됨(현재가=전일종가 의심) - 원본 응답: {output}"
+            )
+        return pct
 
     @classmethod
     def _get_kis_overseas_index_change_with_retry(
