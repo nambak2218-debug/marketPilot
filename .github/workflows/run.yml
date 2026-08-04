@@ -71,6 +71,7 @@ jobs:
           TZ: Asia/Seoul
           PYTHONUNBUFFERED: "1"
           RUN_MODE: ${{ steps.mode.outputs.value }}
+          RUN_TRIGGER: ${{ github.event_name }}
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
