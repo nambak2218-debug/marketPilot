@@ -28,6 +28,7 @@ class HistoryService:
         "program_total",
         "futures_day_disparity", "futures_day_basis",
         "futures_night_disparity", "futures_night_basis",
+        "run_trigger",
         "kospi_at_signal", "kospi_entry_price", "kospi_close",
         "return_after_signal", "result", "evaluated_at",
     ]
@@ -137,6 +138,7 @@ class HistoryService:
         supply: dict[str, Any],
         result: dict[str, Any],
         futures: dict[str, Any] | None = None,
+        run_trigger: str = "unknown",
     ) -> bool:
         rows = self._read_rows()
         run_at = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -167,6 +169,7 @@ class HistoryService:
             "program": supply.get("program") if supply.get("program") is not None else "",
             "program_total": supply.get("program_total") if supply.get("program_total") is not None else "",
             **self._futures_fields(futures),
+            "run_trigger": run_trigger,
             "kospi_at_signal": signal_price,
             "kospi_entry_price": "",
             "kospi_close": "",
