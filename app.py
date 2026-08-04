@@ -260,9 +260,12 @@ async def run_alert(telegram: TelegramService, chat_id: str, now: datetime) -> N
         futures = FuturesService().get_data()
         result = ScoreService().calculate(market, score_supply, session=session, futures_data=futures)
         slot, _, _ = get_report_slot(now)
+        # GitHub Actions의 실제 트리거(schedule/workflow_dispatch)를 그대로 기록해서
+        # 나중에 "실전 스케줄 신호"와 "디버깅용 수동 실행"을 구분할 수 있게 한다.
+        run_trigger = os.getenv("RUN_TRIGGER", "unknown")
         HistoryService().record_signal(
             now=now, slot=slot, session=session, market=market, supply=supply,
-            result=result, futures=futures,
+            result=result, futures=futures, run_trigger=run_trigger,
         )
         await telegram.send(chat_id, build_message(market, supply, result, now))
     except Exception as exc:
