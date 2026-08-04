@@ -276,7 +276,17 @@ class MarketService:
             fetched = cls._change_with_retry(symbol)
 
             if fetched is None:
-                result[name] = None
+                # Yahoo가 예외로 완전히 실패한 경우에도, "오래된 값" 케이스와 동일하게
+                # 선물/프록시 대체를 시도한다 (이전엔 여기서 바로 None 처리되어 이미
+                # 확보해둔 선물값이 있어도 못 쓰는 문제가 있었다).
+                logger.warning("%s Yahoo 조회 완전 실패 - 대체 후보 확인", symbol)
+                fallback_key = fallback_map.get(name)
+                fallback = dated.get(fallback_key) if fallback_key else None
+                if fallback and is_fresh(fallback):
+                    logger.warning("%s -> %s(으)로 대체", name, fallback_key)
+                    result[name] = fallback[0]
+                else:
+                    result[name] = None
                 continue
 
             pct, latest_date, previous_date = fetched
