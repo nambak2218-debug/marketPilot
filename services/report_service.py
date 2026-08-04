@@ -120,7 +120,11 @@ class ReportService:
 
     def generate(self, start: date, end: date) -> tuple[Path, Path, str]:
         rows = self.history.rows_for_period(start, end)
-        metrics = self.calculate_metrics(rows)
+        # 수동(workflow_dispatch) 실행은 디버깅/테스트 목적일 가능성이 높아 통계에서 제외한다.
+        # run_trigger가 없는 과거 행(이 필드 도입 이전 데이터)은 스케줄 실행으로 간주해 그대로 포함한다.
+        scheduled_rows = [row for row in rows if row.get("run_trigger") != "workflow_dispatch"]
+        excluded_count = len(rows) - len(scheduled_rows)
+        metrics = self.calculate_metrics(scheduled_rows)
         period = f"{start:%Y%m%d}_{end:%Y%m%d}"
         pdf_path = self.output_dir / f"MarketPilot_monthly_{period}.pdf"
         csv_path = self.output_dir / f"MarketPilot_monthly_detail_{period}.csv"
@@ -143,8 +147,14 @@ class ReportService:
             Spacer(1, 4*mm),
             Paragraph(f"분석 기간: {start:%Y-%m-%d} ~ {end:%Y-%m-%d}", body),
             Paragraph("본 보고서는 저장된 모의 신호의 사후 성과를 점검하며 실제 투자 성과를 보장하지 않습니다.", small),
-            Spacer(1, 5*mm),
         ]
+        if excluded_count:
+            story.append(Paragraph(
+                f"※ 수동 실행(디버깅/테스트) {excluded_count}건은 통계에서 제외했습니다. "
+                f"(CSV 원본에는 전체 {len(rows)}건이 포함되어 있습니다.)",
+                small,
+            ))
+        story.append(Spacer(1, 5*mm))
 
         summary_data = [
             ["평가 신호", "적중", "전체 적중률", "최대 연속 실패"],
@@ -205,7 +215,9 @@ class ReportService:
         summary = (
             f"📊 MarketPilot 월간 점검보고서\n"
             f"기간 : {start:%Y-%m-%d} ~ {end:%Y-%m-%d}\n\n"
-            f"평가 신호 : {metrics['total']}건\n"
+            f"평가 신호 : {metrics['total']}건"
+            + (f" (수동 실행 {excluded_count}건 제외)" if excluded_count else "")
+            + "\n"
             f"전체 적중률 : {metrics['hit_rate']:.1f}%\n"
             f"최고 성과 시간대 : {best}\n"
             f"개선 필요 시간대 : {worst}\n"
