@@ -168,8 +168,8 @@ S&P500 : {format_pct(market.get('SP500'))}
 SOX : {format_pct_with_stale_fallback(market, 'SOX')}
 VIX : {format_pct_with_stale_fallback(market, 'VIX')}
 
-(선물) S&P500 : {format_pct(market.get('SP500_FUT'))}
-(선물) 나스닥 : {format_pct(market.get('NASDAQ_FUT'))}
+(선물) S&P500 : {format_pct_with_stale_fallback(market, 'SP500_FUT')}
+(선물) 나스닥 : {format_pct_with_stale_fallback(market, 'NASDAQ_FUT')}
 
 💵 환율
 
