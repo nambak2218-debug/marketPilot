@@ -286,6 +286,13 @@ class MarketService:
                     logger.warning("%s -> %s(으)로 대체", name, fallback_key)
                     result[name] = fallback[0]
                 else:
+                    if fallback:
+                        logger.warning(
+                            "%s 대체 후보(%s)도 신선도 실패 (최신=%s, 직전=%s, 기준=%s)",
+                            name, fallback_key, fallback[1], fallback[2], reference_date,
+                        )
+                    else:
+                        logger.warning("%s 대체 후보(%s) 자체가 없음", name, fallback_key)
                     result[name] = None
                 continue
 
@@ -302,12 +309,33 @@ class MarketService:
                     logger.warning("%s -> %s(으)로 대체", name, fallback_key)
                     result[name] = fallback[0]
                 else:
+                    if fallback:
+                        logger.warning(
+                            "%s 대체 후보(%s)도 신선도 실패 (최신=%s, 직전=%s, 기준=%s)",
+                            name, fallback_key, fallback[1], fallback[2], reference_date,
+                        )
+                    else:
+                        logger.warning("%s 대체 후보(%s) 자체가 없음", name, fallback_key)
                     # 스코어링에는 안 쓰지만(None), 메시지 표시용으로 마지막 확인값은 남겨둔다.
                     result[name] = None
                     result[f"{name}_stale_value"] = pct
                     result[f"{name}_stale_date"] = latest_date.isoformat()
             else:
                 result[name] = pct
+
+        # 선물 원본 표시값도 같은 신선도 기준을 통과했는지 표시해서, "(선물)" 줄이
+        # 대체용으로도 못 쓸 만큼 오래됐는데 화면엔 멀쩡해 보이는 모순을 없앤다.
+        for futures_name in cls.FUTURES_SYMBOLS:
+            futures_dated = dated.get(futures_name)
+            if futures_dated and not is_fresh(futures_dated):
+                pct, latest_date, previous_date = futures_dated
+                logger.warning(
+                    "%s(선물) 자체도 신선도 문제 (최신=%s, 직전=%s, 기준=%s)",
+                    futures_name, latest_date, previous_date, reference_date,
+                )
+                result[futures_name] = None
+                result[f"{futures_name}_stale_value"] = pct
+                result[f"{futures_name}_stale_date"] = latest_date.isoformat()
 
         # 국내 지수는 KIS를 우선 사용한다.
         domestic = cls._get_domestic_indices(kis)
